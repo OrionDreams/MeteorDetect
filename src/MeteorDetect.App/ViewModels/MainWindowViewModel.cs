@@ -118,9 +118,27 @@ public partial class MainWindowViewModel : ObservableObject
             OutputPath = $"Output: {result.CombinedJsonPath}";
             AppendLog($"Finished. Detected {result.EventCount} event(s); failures={result.FailureCount}.");
 
-            await _userInteraction.ShowNoticeAsync(
-                "Detection finished",
-                $"Wrote:\n{result.CombinedJsonPath}\n\nIn DaVinci Resolve, choose Workspace > Scripts > Import Meteors, then select this JSON file to add Pink clip markers.");
+            if (result.FailureCount > 0)
+            {
+                var failedClips = result.Clips.Where(clip => !clip.Succeeded).ToList();
+                var message = result.EventCount > 0
+                    ? $"Wrote partial results:\n{result.CombinedJsonPath}\n\nDetected {result.EventCount} event(s), but {result.FailureCount} clip(s) failed. Check the output log before importing this JSON into Resolve."
+                    : $"Detection failed for {result.FailureCount} clip(s). No meteor events were written.\n\nDetails are in the output log.";
+
+                if (failedClips.Count > 0)
+                {
+                    message += $"\n\nFirst failure:\n{SummarizeFailure(failedClips[0].Error)}";
+                }
+
+                var title = result.EventCount > 0 ? "Detection incomplete" : "Detection failed";
+                await _userInteraction.ShowNoticeAsync(title, message);
+            }
+            else
+            {
+                await _userInteraction.ShowNoticeAsync(
+                    "Detection finished",
+                    $"Wrote:\n{result.CombinedJsonPath}\n\nIn DaVinci Resolve, choose Workspace > Scripts > Import Meteors, then select this JSON file to add Pink clip markers.");
+            }
         }
         catch (Exception ex)
         {
@@ -242,6 +260,20 @@ public partial class MainWindowViewModel : ObservableObject
     private void AppendLog(string message)
     {
         LogText += $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
+    }
+
+    private static string SummarizeFailure(string? error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return "Unknown detector error.";
+        }
+
+        var lines = error
+            .Split(["\r\n", "\n", "\r"], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .TakeLast(3);
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private bool CanAddFiles() => !IsDetecting;

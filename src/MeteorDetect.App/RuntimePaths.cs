@@ -115,11 +115,14 @@ public static class RuntimePaths
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             yield return Path.Combine(repositoryRoot, "runtime", "python", "python.exe");
+            yield return Path.Combine(repositoryRoot, ".venv", "Scripts", "python.exe");
         }
         else
         {
             yield return Path.Combine(repositoryRoot, "runtime", "python", "bin", "python3");
             yield return Path.Combine(repositoryRoot, "runtime", "python", "bin", "python");
+            yield return Path.Combine(repositoryRoot, ".venv", "bin", "python3");
+            yield return Path.Combine(repositoryRoot, ".venv", "bin", "python");
         }
     }
 }

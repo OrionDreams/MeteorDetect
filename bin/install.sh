@@ -6,8 +6,11 @@ repo_root="$(cd -- "$script_dir/.." && pwd)"
 cd "$repo_root"
 
 if [[ ! -d .venv ]]; then
-  python -m venv .venv
+  python3 -m venv .venv
 fi
+
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
 
 shell_name="$(basename "${SHELL:-}")"
 if [[ -z "$shell_name" ]]; then

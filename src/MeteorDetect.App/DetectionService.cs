@@ -113,7 +113,7 @@ public sealed class DetectionService
             cancellationToken);
 
         var totalEvents = results.Where(r => r.Succeeded).Sum(r => r.EventCount);
-        var failures = results.Count(r => !r.Succeeded) + failureElements.Count;
+        var failures = failureElements.Count;
         return new DetectionBatchResult(combinedPath, totalEvents, failures, results);
     }
 
