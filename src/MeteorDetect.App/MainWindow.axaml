@@ -53,13 +53,19 @@
                         <CheckBox Grid.Column="3" Content="Fast prefilter" IsChecked="{Binding FastPrefilter}" VerticalAlignment="Center"/>
                     </Grid>
 
-                    <Grid Grid.Row="2" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                    <Grid Grid.Row="2" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
                         <TextBlock Text="{Binding RemainingTimeText}" Foreground="#4B5563" HorizontalAlignment="Right"/>
                         <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
                             <ProgressBar Value="{Binding ProgressPercentage}" Minimum="0" Maximum="100" Height="12" VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="1" Text="{Binding ProgressPercentText}" VerticalAlignment="Center" FontWeight="SemiBold"/>
                         </Grid>
-                        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
+                        <ProgressBar Grid.Row="2"
+                                     Minimum="0"
+                                     Maximum="100"
+                                     Height="3"
+                                     IsIndeterminate="True"
+                                     IsVisible="{Binding IsDetecting}"/>
+                        <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
                             <TextBlock Text="{Binding ProcessedFramesText}" Foreground="#4B5563"/>
                             <TextBlock Grid.Column="1" Text="{Binding FramesPerSecondText}" Foreground="#4B5563"/>
                             <TextBlock Grid.Column="2" Text="{Binding CandidateFramesText}" Foreground="#4B5563"/>
