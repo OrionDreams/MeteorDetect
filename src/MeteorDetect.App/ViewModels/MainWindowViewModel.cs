@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Text.RegularExpressions;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -8,10 +10,18 @@ namespace MeteorDetect.App.ViewModels;
 
 public partial class MainWindowViewModel : ObservableObject
 {
+    private static readonly Regex DetectorProgressPattern = new(
+        @"^(?:\[(?<time>\d{2}:\d{2}:\d{2})\])?\[(?<file>[^\]]+)\]\s+frame\s+(?<processed>\d+)\/(?<total>\d+),\s+candidates=(?<candidates>\d+)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private readonly DetectorRuntime _runtime;
     private readonly DetectionService _detectionService;
     private readonly IUserInteractionService _userInteraction;
+    private readonly Queue<double> _recentFrameRates = new();
     private AppSettings _settings = new();
+    private DateTimeOffset? _previousProgressObservedAt;
+    private long? _previousProgressFrames;
+    private long? _previousProgressTotalFrames;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedCommand))]
@@ -30,6 +40,24 @@ public partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private string _logText = "";
+
+    [ObservableProperty]
+    private double _progressPercentage;
+
+    [ObservableProperty]
+    private string _progressPercentText = "0%";
+
+    [ObservableProperty]
+    private string _processedFramesText = "Processed frames: 0 / 0";
+
+    [ObservableProperty]
+    private string _candidateFramesText = "Candidate frames: 0";
+
+    [ObservableProperty]
+    private string _framesPerSecondText = "Speed: -- fps";
+
+    [ObservableProperty]
+    private string _remainingTimeText = "Remaining: --";
 
     [ObservableProperty]
     private string _resolveScriptDirectory = "";
@@ -80,6 +108,7 @@ public partial class MainWindowViewModel : ObservableObject
     {
         IsDetecting = true;
         OutputPath = "";
+        ResetProgress();
 
         try
         {
@@ -168,6 +197,7 @@ public partial class MainWindowViewModel : ObservableObject
         Clips.Clear();
         OutputPath = "";
         SelectedClip = null;
+        ResetProgress();
         AppendLog("Cleared clips.");
         DetectCommand.NotifyCanExecuteChanged();
     }
@@ -259,7 +289,104 @@ public partial class MainWindowViewModel : ObservableObject
 
     private void AppendLog(string message)
     {
+        UpdateProgressFromLog(message, DateTimeOffset.Now);
         LogText += $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
+    }
+
+    private void UpdateProgressFromLog(string message, DateTimeOffset observedAt)
+    {
+        var match = DetectorProgressPattern.Match(message);
+        if (!match.Success)
+        {
+            return;
+        }
+
+        if (!long.TryParse(match.Groups["processed"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var processedFrames)
+            || !long.TryParse(match.Groups["total"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var totalFrames)
+            || !long.TryParse(match.Groups["candidates"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var candidateFrames)
+            || totalFrames <= 0)
+        {
+            return;
+        }
+
+        var isNewProgressStream = _previousProgressFrames > processedFrames
+            || (_previousProgressTotalFrames is { } previousTotal && previousTotal != totalFrames);
+
+        if (isNewProgressStream)
+        {
+            _previousProgressObservedAt = null;
+            _previousProgressFrames = null;
+            _recentFrameRates.Clear();
+        }
+
+        var averagedFramesPerSecond = CalculateAveragedFramesPerSecond(observedAt, processedFrames);
+        var progress = Math.Clamp(processedFrames * 100.0 / totalFrames, 0, 100);
+
+        ProgressPercentage = progress;
+        ProgressPercentText = $"{Math.Round(progress)}%";
+        ProcessedFramesText = $"Processed frames: {processedFrames:N0} / {totalFrames:N0}";
+        CandidateFramesText = $"Candidate frames: {candidateFrames:N0}";
+        FramesPerSecondText = averagedFramesPerSecond is null
+            ? "Speed: -- fps"
+            : $"Speed: {Math.Round(averagedFramesPerSecond.Value):N0} fps";
+        RemainingTimeText = averagedFramesPerSecond is null || averagedFramesPerSecond <= 0
+            ? "Remaining: --"
+            : $"Remaining: {FormatDuration((totalFrames - processedFrames) / averagedFramesPerSecond.Value)}";
+
+        _previousProgressObservedAt = observedAt;
+        _previousProgressFrames = processedFrames;
+        _previousProgressTotalFrames = totalFrames;
+    }
+
+    private double? CalculateAveragedFramesPerSecond(DateTimeOffset observedAt, long processedFrames)
+    {
+        if (_previousProgressObservedAt is not { } previousObservedAt || _previousProgressFrames is not { } previousFrames)
+        {
+            return null;
+        }
+
+        var elapsed = observedAt - previousObservedAt;
+        var frameDelta = processedFrames - previousFrames;
+        if (elapsed.TotalSeconds <= 0 || frameDelta <= 0)
+        {
+            return _recentFrameRates.Count > 0 ? _recentFrameRates.Average() : null;
+        }
+
+        _recentFrameRates.Enqueue(frameDelta / elapsed.TotalSeconds);
+        while (_recentFrameRates.Count > 3)
+        {
+            _recentFrameRates.Dequeue();
+        }
+
+        return _recentFrameRates.Average();
+    }
+
+    private void ResetProgress()
+    {
+        _previousProgressObservedAt = null;
+        _previousProgressFrames = null;
+        _previousProgressTotalFrames = null;
+        _recentFrameRates.Clear();
+
+        ProgressPercentage = 0;
+        ProgressPercentText = "0%";
+        ProcessedFramesText = "Processed frames: 0 / 0";
+        CandidateFramesText = "Candidate frames: 0";
+        FramesPerSecondText = "Speed: -- fps";
+        RemainingTimeText = "Remaining: --";
+    }
+
+    private static string FormatDuration(double seconds)
+    {
+        if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0)
+        {
+            return "--";
+        }
+
+        var duration = TimeSpan.FromSeconds(seconds);
+        return duration.TotalHours >= 1
+            ? $"{(int)duration.TotalHours}:{duration.Minutes:00}:{duration.Seconds:00}"
+            : $"{duration.Minutes:00}:{duration.Seconds:00}";
     }
 
     private static string SummarizeFailure(string? error)

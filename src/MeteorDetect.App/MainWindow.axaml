@@ -27,7 +27,7 @@
 
         <TabControl>
             <TabItem Header="Clips">
-                <Grid Margin="18" RowDefinitions="*,Auto,Auto" RowSpacing="12">
+                <Grid Margin="18" RowDefinitions="*,Auto,Auto,Auto" RowSpacing="12">
                     <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="0">
                         <ListBox ItemsSource="{Binding Clips}" SelectedItem="{Binding SelectedClip, Mode=TwoWay}">
                             <ListBox.ItemTemplate>
@@ -53,7 +53,20 @@
                         <CheckBox Grid.Column="3" Content="Fast prefilter" IsChecked="{Binding FastPrefilter}" VerticalAlignment="Center"/>
                     </Grid>
 
-                    <Expander Grid.Row="2" Header="Show logs" IsExpanded="False" HorizontalAlignment="Stretch">
+                    <Grid Grid.Row="2" RowDefinitions="Auto,Auto" RowSpacing="6">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <ProgressBar Value="{Binding ProgressPercentage}" Minimum="0" Maximum="100" Height="12" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{Binding ProgressPercentText}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                        </Grid>
+                        <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="16">
+                            <TextBlock Text="{Binding ProcessedFramesText}" Foreground="#4B5563"/>
+                            <TextBlock Grid.Column="1" Text="{Binding FramesPerSecondText}" Foreground="#4B5563"/>
+                            <TextBlock Grid.Column="2" Text="{Binding CandidateFramesText}" Foreground="#4B5563"/>
+                            <TextBlock Grid.Column="3" Text="{Binding RemainingTimeText}" Foreground="#4B5563"/>
+                        </Grid>
+                    </Grid>
+
+                    <Expander Grid.Row="3" Header="Show logs" IsExpanded="False" HorizontalAlignment="Stretch">
                         <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="10" HorizontalAlignment="Stretch">
                             <TextBox Text="{Binding LogText}"
                                      behaviors:LogAutoScroll.AutoScrollToEnd="True"
