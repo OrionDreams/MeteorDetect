@@ -26,10 +26,48 @@ def default_output_path(input_path: Path) -> Path:
     return Path(f"{input_path.stem}_meteors.json")
 
 
+def timestamped_output_path(input_path: Path, timestamp: str, output_dir: Path | None = None) -> Path:
+    directory = output_dir if output_dir is not None else Path()
+    return directory / f"{input_path.stem}_meteors_{timestamp}.json"
+
+
+def write_payload(
+    out: Path,
+    cfg: dict,
+    results: list,
+    failures: list,
+    created_utc: str,
+) -> None:
+    payload = {
+        "format": "resolve-meteor-detector",
+        "format_version": 1,
+        "detector_version": __version__,
+        "created_utc": created_utc,
+        "config": cfg,
+        "files": results,
+        "failures": failures,
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+        f.write("\n")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Detect meteor-like transient streaks in night-sky video.")
     ap.add_argument("input", type=Path, help="MP4 file or directory containing MP4 files")
-    ap.add_argument("-o", "--output", type=Path, help="Output JSON (default: <video_name>_meteors.json)")
+    ap.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Output JSON for a single file/combined mode, or output directory for multi-file per-clip mode",
+    )
+    ap.add_argument(
+        "--output-mode",
+        choices=("per-clip", "combined"),
+        default="per-clip",
+        help="Write one JSON per source clip by default; use combined for the legacy multi-clip JSON",
+    )
     ap.add_argument("--config", type=Path, help="JSON config file; see config.example.json")
     ap.add_argument("--no-diagnostics", action="store_true", help="Do not write candidate JPEGs")
     ap.add_argument("--profile", action="store_true", help="Print stage timings/counters and include them in JSON")
@@ -64,38 +102,63 @@ def main() -> int:
     if not files:
         ap.error("No supported video files found")
 
-    if args.output is None:
-        out = available_output_path(default_output_path(inp)).resolve()
-    else:
-        out = args.output.expanduser().resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
     print(f"Meteor Detector v{__version__}: scanning {len(files)} file(s)", file=sys.stderr)
     if cfg.get("fast_prefilter", False):
         print("Fast prefilter: ENABLED (experimental; validate recall on known meteors)", file=sys.stderr)
 
     results = []
     failures = []
+    written_outputs = []
+    created_utc = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    output_arg = args.output.expanduser().resolve() if args.output is not None else None
+    per_clip_output_dir = None
+    combined_out = None
+    if args.output_mode == "combined":
+        combined_out = available_output_path(default_output_path(inp)).resolve() if output_arg is None else output_arg
+    elif output_arg is not None and len(files) > 1:
+        if output_arg.suffix.lower() == ".json":
+            ap.error("--output must be a directory when using --output-mode per-clip with multiple input files")
+        per_clip_output_dir = output_arg
+
     for p in files:
         print(f"Scanning {p}", file=sys.stderr)
+        clip_failures = []
+        if combined_out is not None:
+            diagnostic_dir = combined_out.parent
+        elif output_arg is not None and len(files) == 1 and output_arg.suffix.lower() == ".json":
+            diagnostic_dir = output_arg.parent
+        else:
+            diagnostic_dir = (per_clip_output_dir or Path()).resolve()
+
         try:
-            results.append(scan_file(p, out.parent, cfg, profile=args.profile))
+            file_result = scan_file(p, diagnostic_dir, cfg, profile=args.profile)
+            results.append(file_result)
+            clip_results = [file_result]
         except Exception as exc:
             print(f"ERROR: {p}: {exc}", file=sys.stderr)
-            failures.append({"path": str(p), "error": str(exc)})
+            failure = {"path": str(p), "error": str(exc)}
+            failures.append(failure)
+            clip_failures.append(failure)
+            clip_results = []
 
-    payload = {
-        "format": "resolve-meteor-detector",
-        "format_version": 1,
-        "detector_version": __version__,
-        "created_utc": datetime.now(timezone.utc).isoformat(),
-        "config": cfg,
-        "files": results,
-        "failures": failures,
-    }
-    with out.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-        f.write("\n")
-    print(f"Wrote {out}", file=sys.stderr)
+        if args.output_mode == "per-clip":
+            if output_arg is not None and len(files) == 1 and output_arg.suffix.lower() == ".json":
+                out = output_arg
+            else:
+                out = available_output_path(timestamped_output_path(p, timestamp, per_clip_output_dir)).resolve()
+            write_payload(out, cfg, clip_results, clip_failures, created_utc)
+            written_outputs.append(out)
+            print(f"Wrote {out}", file=sys.stderr)
+
+    if args.output_mode == "combined":
+        assert combined_out is not None
+        combined_out.parent.mkdir(parents=True, exist_ok=True)
+        write_payload(combined_out, cfg, results, failures, created_utc)
+        written_outputs.append(combined_out)
+        print(f"Wrote {combined_out}", file=sys.stderr)
+
     print(f"Detected {sum(len(x['events']) for x in results)} event(s); failures={len(failures)}", file=sys.stderr)
     return 1 if failures and not results else 0
 

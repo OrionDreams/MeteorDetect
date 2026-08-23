@@ -39,6 +39,9 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _fastPrefilter;
 
     [ObservableProperty]
+    private bool _writeCombinedJson;
+
+    [ObservableProperty]
     private string _outputPath = "";
 
     [ObservableProperty]
@@ -129,6 +132,7 @@ public partial class MainWindowViewModel : ObservableObject
             var result = await _detectionService.DetectAsync(
                 Clips.Select(clip => clip.Path).ToList(),
                 FastPrefilter,
+                WriteCombinedJson,
                 UpdateClipStatus,
                 AppendLogThreadSafe);
 
@@ -152,14 +156,20 @@ public partial class MainWindowViewModel : ObservableObject
                 }
             }
 
-            OutputPath = $"Output: {result.CombinedJsonPath}";
+            OutputPath = result.IsCombinedOutput
+                ? $"Output: {result.PrimaryOutputPath}"
+                : $"Output: {result.OutputPaths.Count} JSON file(s)";
             AppendLog($"Finished. Detected {result.EventCount} event(s); failures={result.FailureCount}.");
+            foreach (var outputPath in result.OutputPaths)
+            {
+                AppendLog($"Wrote {outputPath}");
+            }
 
             if (result.FailureCount > 0)
             {
                 var failedClips = result.Clips.Where(clip => !clip.Succeeded).ToList();
                 var message = result.EventCount > 0
-                    ? $"Wrote partial results:\n{result.CombinedJsonPath}\n\nDetected {result.EventCount} event(s), but {result.FailureCount} clip(s) failed. Check the output log before importing this JSON into Resolve."
+                    ? $"Wrote partial results:\n{FormatOutputPaths(result.OutputPaths)}\n\nDetected {result.EventCount} event(s), but {result.FailureCount} clip(s) failed. Check the output log before importing into Resolve."
                     : $"Detection failed for {result.FailureCount} clip(s). No meteor events were written.\n\nDetails are in the output log.";
 
                 if (failedClips.Count > 0)
@@ -174,7 +184,7 @@ public partial class MainWindowViewModel : ObservableObject
             {
                 await _userInteraction.ShowNoticeAsync(
                     "Detection finished",
-                    $"Meteor Events: {result.EventCount}\n\nWrote:\n{result.CombinedJsonPath}\n\nIn DaVinci Resolve, choose Workspace > Scripts > Import Meteors, then select this JSON file to add Pink clip markers.");
+                    $"Meteor Events: {result.EventCount}\n\nWrote:\n{FormatOutputPaths(result.OutputPaths)}\n\nIn DaVinci Resolve, choose Workspace > Scripts > Import Meteors, then select the JSON file(s) to add Pink clip markers.");
             }
         }
         catch (Exception ex)
@@ -254,6 +264,7 @@ public partial class MainWindowViewModel : ObservableObject
         _settings = await SettingsStore.LoadAsync();
         _settings.ResolveScriptDirectory ??= RuntimePaths.FirstExistingResolveUtilityDirectory();
         ResolveScriptDirectory = _settings.ResolveScriptDirectory ?? "";
+        WriteCombinedJson = _settings.WriteCombinedJson;
         await SettingsStore.SaveAsync(_settings);
         RefreshResolvePluginStatus();
     }
@@ -310,6 +321,12 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         _remainingTimeTimer.Stop();
+    }
+
+    partial void OnWriteCombinedJsonChanged(bool value)
+    {
+        _settings.WriteCombinedJson = value;
+        _ = SettingsStore.SaveAsync(_settings);
     }
 
     private void UpdateProgressFromLog(string message, DateTimeOffset observedAt)
@@ -447,6 +464,16 @@ public partial class MainWindowViewModel : ObservableObject
             .TakeLast(3);
 
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string FormatOutputPaths(IReadOnlyList<string> outputPaths)
+    {
+        if (outputPaths.Count == 0)
+        {
+            return "No JSON files were written.";
+        }
+
+        return string.Join(Environment.NewLine, outputPaths);
     }
 
     private bool CanAddFiles() => !IsDetecting;

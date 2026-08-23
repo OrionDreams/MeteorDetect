@@ -9,6 +9,8 @@ namespace MeteorDetect.App;
 public sealed class AppSettings
 {
     public string? ResolveScriptDirectory { get; set; }
+
+    public bool WriteCombinedJson { get; set; }
 }
 
 public static class SettingsStore

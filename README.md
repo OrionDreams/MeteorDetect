@@ -12,7 +12,7 @@ Development target:
 - stationary tripod
 - long shutter times where one camera exposure can be represented by multiple encoded video frames
 
-The detector itself is independent of Resolve. It writes a JSON file named after the source video, such as `C2752_meteors.json`; the included Resolve importer reads that JSON and places Pink markers on matching timeline clips.
+The detector itself is independent of Resolve. By default, it writes one JSON file per source video, such as `C2752_meteors_20260823_142233.json`; the included Resolve importer reads that JSON and places Pink markers on matching timeline clips.
 
 ## What's new in v0.6
 
@@ -101,7 +101,13 @@ Directory:
 bin/detect-meteors.sh /path/to/video-directory
 ```
 
-By default, `C2752.MP4` writes `C2752_meteors.json`. If that file already exists, the detector writes `C2752_meteors_1.json`, then `C2752_meteors_2.json`, and so on. Use `-o` only when you want to force a specific output path.
+By default, `C2752.MP4` writes a timestamped file named like `C2752_meteors_20260823_142233.json`. Directory scans write one JSON per clip. Use `-o` with a single clip when you want to force a specific output path.
+
+To keep the legacy behavior where multiple clips are written into one JSON:
+
+```bash
+bin/detect-meteors.sh /path/to/video-directory --output-mode combined -o meteors.json
+```
 
 Disable JPEG diagnostics for speed measurements:
 
@@ -245,7 +251,7 @@ Then:
 
 1. Open the project and desired timeline.
 2. Choose **Workspace → Scripts → Import Meteors**.
-3. Select the detector's JSON output, such as `C2752_meteors.json`.
+3. Select the detector's JSON output, such as `C2752_meteors_20260823_142233.json`.
 4. The script adds **Pink markers to the matching clips themselves**.
 
 The Lua file is self-contained, including its JSON reader. It does not need Python, OpenCV, FFmpeg, Distrobox, or the detector virtual environment. Re-importing the same JSON is designed not to duplicate existing meteor markers.

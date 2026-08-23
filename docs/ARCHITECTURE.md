@@ -29,7 +29,7 @@ line geometry filtering
 cross-frame event grouping
         |
         v
-meteors.json
+per-clip meteor JSON
         |
         v
 resolve_importer/import_meteors.py
@@ -66,7 +66,7 @@ CLI orchestration:
 - discovers files;
 - applies CLI overrides;
 - invokes `scan_file()`;
-- writes combined JSON.
+- writes one JSON per clip by default, or a combined JSON when requested.
 
 ### `meteor_detector/detector.py`
 
@@ -93,7 +93,7 @@ Avalonia desktop application for non-console users:
 - load one or more clips;
 - display clip name, path, duration and detection status;
 - launch detection jobs using the existing detector;
-- write/read `meteors.json`;
+- write/read per-clip meteor JSON files, with an optional combined JSON mode;
 - help install the Resolve Lua Utility script;
 - remember the detected or user-supplied Resolve script directory.
 
@@ -141,7 +141,7 @@ All authoritative event timing uses integer source-frame indices. Do not convert
 Normal user path:
 
 ```text
-external detector -> meteors.json -> Resolve Workspace/Utility Lua script -> TimelineItem:AddMarker()
+external detector -> meteor JSON -> Resolve Workspace/Utility Lua script -> TimelineItem:AddMarker()
 ```
 
 `resolve_importer/Import Meteors.lua` is the preferred end-user importer. It is self-contained so the Resolve host does not depend on the detector's Python runtime. `resolve_importer/import_meteors.py` remains as a development/reference implementation.

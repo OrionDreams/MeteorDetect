@@ -10,7 +10,15 @@ namespace MeteorDetect.App;
 
 public sealed record ClipDetectionResult(string ClipPath, string JsonPath, int EventCount, bool Succeeded, string? Error);
 
-public sealed record DetectionBatchResult(string CombinedJsonPath, int EventCount, int FailureCount, IReadOnlyList<ClipDetectionResult> Clips);
+public sealed record DetectionBatchResult(
+    IReadOnlyList<string> OutputPaths,
+    int EventCount,
+    int FailureCount,
+    IReadOnlyList<ClipDetectionResult> Clips,
+    bool IsCombinedOutput)
+{
+    public string PrimaryOutputPath => OutputPaths.Count > 0 ? OutputPaths[0] : "";
+}
 
 public sealed class DetectionService
 {
@@ -26,6 +34,7 @@ public sealed class DetectionService
     public async Task<DetectionBatchResult> DetectAsync(
         IReadOnlyList<string> clipPaths,
         bool fastPrefilter,
+        bool writeCombinedJson,
         Action<string, string>? updateClipStatus,
         Action<string>? log,
         CancellationToken cancellationToken = default)
@@ -36,9 +45,11 @@ public sealed class DetectionService
         }
 
         var batchDirectory = CreateBatchDirectory();
+        var outputTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var results = new List<ClipDetectionResult>();
         var fileElements = new List<JsonElement>();
         var failureElements = new List<JsonElement>();
+        var outputPaths = new List<string>();
         JsonElement? config = null;
         string? detectorVersion = null;
 
@@ -47,7 +58,9 @@ public sealed class DetectionService
             cancellationToken.ThrowIfCancellationRequested();
             updateClipStatus?.Invoke(clipPath, "Detecting...");
 
-            var clipOutput = Path.Combine(batchDirectory, $"{SanitizeFileName(Path.GetFileNameWithoutExtension(clipPath))}_meteors.json");
+            var clipOutput = writeCombinedJson
+                ? Path.Combine(batchDirectory, $"{SanitizeFileName(Path.GetFileNameWithoutExtension(clipPath))}_meteors.json")
+                : GetAvailableOutputPath(CreatePerClipOutputPath(clipPath, outputTimestamp));
             var args = new List<string>
             {
                 "-m",
@@ -82,6 +95,11 @@ public sealed class DetectionService
                 continue;
             }
 
+            if (!writeCombinedJson)
+            {
+                outputPaths.Add(clipOutput);
+            }
+
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(clipOutput, cancellationToken));
             var root = document.RootElement;
             detectorVersion ??= root.GetProperty("detector_version").GetString();
@@ -103,18 +121,22 @@ public sealed class DetectionService
             updateClipStatus?.Invoke(clipPath, "Done");
         }
 
-        var combinedPath = Path.Combine(GetDefaultOutputDirectory(clipPaths[0]), $"meteors_{DateTime.Now:yyyyMMdd_HHmmss}.json");
-        await WriteCombinedJsonAsync(
-            combinedPath,
-            detectorVersion ?? "unknown",
-            config,
-            fileElements,
-            failureElements,
-            cancellationToken);
+        if (writeCombinedJson)
+        {
+            var combinedPath = GetAvailableOutputPath(Path.Combine(GetDefaultOutputDirectory(clipPaths[0]), $"meteors_{outputTimestamp}.json"));
+            await WriteCombinedJsonAsync(
+                combinedPath,
+                detectorVersion ?? "unknown",
+                config,
+                fileElements,
+                failureElements,
+                cancellationToken);
+            outputPaths.Add(combinedPath);
+        }
 
         var totalEvents = results.Where(r => r.Succeeded).Sum(r => r.EventCount);
         var failures = failureElements.Count;
-        return new DetectionBatchResult(combinedPath, totalEvents, failures, results);
+        return new DetectionBatchResult(outputPaths, totalEvents, failures, results, writeCombinedJson);
     }
 
     private IReadOnlyDictionary<string, string> BuildProcessEnvironment()
@@ -150,10 +172,39 @@ public sealed class DetectionService
         return SettingsStore.SettingsDirectory;
     }
 
+    private static string CreatePerClipOutputPath(string clipPath, string timestamp)
+    {
+        var outputDirectory = GetDefaultOutputDirectory(clipPath);
+        var fileName = $"{SanitizeFileName(Path.GetFileNameWithoutExtension(clipPath))}_meteors_{timestamp}.json";
+        return Path.Combine(outputDirectory, fileName);
+    }
+
     private static string SanitizeFileName(string fileName)
     {
         var invalid = Path.GetInvalidFileNameChars();
         return new string(fileName.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray());
+    }
+
+    private static string GetAvailableOutputPath(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return path;
+        }
+
+        var directory = Path.GetDirectoryName(path) ?? "";
+        var stem = Path.GetFileNameWithoutExtension(path);
+        var extension = Path.GetExtension(path);
+        for (var i = 1; i < int.MaxValue; i++)
+        {
+            var candidate = Path.Combine(directory, $"{stem}_{i}{extension}");
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException($"Could not find an available output path for {path}");
     }
 
     private static JsonElement CreateFailureElement(string clipPath, string error)

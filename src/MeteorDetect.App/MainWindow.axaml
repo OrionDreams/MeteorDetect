@@ -99,6 +99,16 @@
 
                     <Border Grid.Row="1" BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="14">
                         <StackPanel Spacing="8">
+                            <TextBlock Text="Output" FontSize="18" FontWeight="SemiBold"/>
+                            <CheckBox Content="Write multiple clips into one JSON file"
+                                      IsChecked="{Binding WriteCombinedJson}"/>
+                            <TextBlock Text="When off, each clip gets its own timestamped JSON next to the source video."
+                                       Foreground="#4B5563"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="2" BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="14">
+                        <StackPanel Spacing="8">
                             <TextBlock Text="Runtime" FontSize="18" FontWeight="SemiBold"/>
                             <TextBlock Text="{Binding RuntimeStatus}" Foreground="#374151"/>
                         </StackPanel>
