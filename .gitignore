@@ -1,3 +1,9 @@
 .idea
 /meteors.*
 /diagnostics
+__pycache__/
+**/__pycache__/
+.dotnet/
+src/**/bin/
+src/**/obj/
+/artifacts/

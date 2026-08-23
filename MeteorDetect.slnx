@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MeteorDetect.App/MeteorDetect.App.csproj" />
+  </Folder>
+</Solution>

@@ -9,4 +9,5 @@ if [[ $# -lt 1 ]]; then
   exit 2
 fi
 
-exec python "$repo_root/detect.py" "$@"
+export PYTHONPATH="$repo_root${PYTHONPATH:+:$PYTHONPATH}"
+exec python -m meteor_detector.cli "$@"

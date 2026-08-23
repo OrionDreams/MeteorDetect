@@ -6,10 +6,11 @@ Instructions for Codex and other coding agents working in this repository.
 
 Before changing code, read:
 
-1. `PROJECT_NOTES.md`
-2. `ARCHITECTURE.md`
-3. `TESTING.md`
-4. `PERFORMANCE.md` if the task concerns speed
+1. `docs/PROJECT_NOTES.md`
+2. `docs/ARCHITECTURE.md`
+3. `docs/TESTING.md`
+4. `docs/PERFORMANCE.md` if the task concerns speed
+5. `docs/CSHARP-DOTNET-AVALONIA-MVVM.md` for C#, .NET and Avalonia guidance
 
 ## Project goal
 
@@ -64,9 +65,9 @@ When optimizing, compare both runtime and meteor recall against the same known-p
 At minimum:
 
 ```bash
-python -m py_compile detect.py meteor_detector/detector.py
-python detect.py KNOWN_POSITIVE.MP4 -o test.json --no-diagnostics --profile
-python detect.py KNOWN_POSITIVE.MP4 -o test-fast.json --no-diagnostics --profile --fast-prefilter
+python -m py_compile meteor_detector/cli.py meteor_detector/detector.py
+python -m meteor_detector.cli KNOWN_POSITIVE.MP4 -o test.json --no-diagnostics --profile
+python -m meteor_detector.cli KNOWN_POSITIVE.MP4 -o test-fast.json --no-diagnostics --profile --fast-prefilter
 ```
 
 Check:

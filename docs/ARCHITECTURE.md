@@ -38,9 +38,27 @@ resolve_importer/import_meteors.py
 Pink TimelineItem markers
 ```
 
+The desktop UI is an orchestration layer, not a replacement for the detector:
+
+```text
+Avalonia desktop app
+        |
+        v
+app-private runtime in packaged builds
+or developer Python in source builds
+        |
+        v
+python -m meteor_detector.cli -> meteors.json
+        |
+        v
+Resolve Lua importer
+```
+
+The Python detector remains independently runnable and testable. The UI should invoke it as a subprocess, capture progress/output, and read the generated JSON. This keeps detection, packaging, and Resolve integration separated.
+
 ## Modules
 
-### `detect.py`
+### `meteor_detector/cli.py`
 
 CLI orchestration:
 
@@ -67,6 +85,19 @@ Core implementation:
 ### `resolve_importer/import_meteors.py`
 
 Resolve-side importer. It is intentionally separate from image analysis.
+
+### `src/MeteorDetect.App`
+
+Avalonia desktop application for non-console users:
+
+- load one or more clips;
+- display clip name, path, duration and detection status;
+- launch detection jobs using the existing detector;
+- write/read `meteors.json`;
+- help install the Resolve Lua Utility script;
+- remember the detected or user-supplied Resolve script directory.
+
+Packaged releases should bundle the detector runtime. Source/development builds may use the active developer Python environment.
 
 ## Temporal model
 
@@ -114,3 +145,5 @@ external detector -> meteors.json -> Resolve Workspace/Utility Lua script -> Tim
 ```
 
 `resolve_importer/Import Meteors.lua` is the preferred end-user importer. It is self-contained so the Resolve host does not depend on the detector's Python runtime. `resolve_importer/import_meteors.py` remains as a development/reference implementation.
+
+The desktop UI may install or update `Import Meteors.lua` by probing known Resolve Utility script directories. If no directory is found, the user can choose one manually and the UI should remember that directory. A future Resolve utility may launch the desktop app with the selected original media path, but the app must remain useful without that integration.

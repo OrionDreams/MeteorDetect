@@ -15,13 +15,13 @@ The desired improvement from v0.4 is therefore roughly 6×.
 Use:
 
 ```bash
-python detect.py INPUT.MP4 -o profile.json --no-diagnostics --profile
+python -m meteor_detector.cli INPUT.MP4 -o profile.json --no-diagnostics --profile
 ```
 
 Then repeat with:
 
 ```bash
-python detect.py INPUT.MP4 -o profile-fast.json --no-diagnostics --profile --fast-prefilter
+python -m meteor_detector.cli INPUT.MP4 -o profile-fast.json --no-diagnostics --profile --fast-prefilter
 ```
 
 Compare the exact same video.

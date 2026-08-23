@@ -1,0 +1,92 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:MeteorDetect.App.ViewModels"
+        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
+        x:Class="MeteorDetect.App.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="MeteorDetect"
+        Width="1100"
+        Height="720"
+        MinWidth="900"
+        MinHeight="620">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Padding="18,14" Background="#20242B">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                <StackPanel>
+                    <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold" Foreground="White"/>
+                    <TextBlock Text="Detect meteors in source clips and import them into DaVinci Resolve as Pink clip markers."
+                               Foreground="#C8D0DA"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="Open files" Command="{Binding AddFilesCommand}" MinWidth="112"/>
+                <Button Grid.Column="2" Content="Detect" Command="{Binding DetectCommand}" MinWidth="112"/>
+            </Grid>
+        </Border>
+
+        <TabControl>
+            <TabItem Header="Clips">
+                <Grid Margin="18" RowDefinitions="*,Auto,120" RowSpacing="12">
+                    <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="0">
+                        <ListBox ItemsSource="{Binding Clips}" SelectedItem="{Binding SelectedClip, Mode=TwoWay}">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ClipItemViewModel">
+                                    <Grid ColumnDefinitions="2*,*,1.4*,Auto" Margin="10,8" ColumnSpacing="12">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Path}" Foreground="#6B7280" FontSize="12"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding Duration}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Status}" VerticalAlignment="Center"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding EventSummary}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+                        <Button Content="Remove selected" Command="{Binding RemoveSelectedCommand}"/>
+                        <Button Grid.Column="1" Content="Clear" Command="{Binding ClearCommand}"/>
+                        <TextBlock Grid.Column="2" Text="{Binding OutputPath}" VerticalAlignment="Center" Foreground="#4B5563"/>
+                        <CheckBox Grid.Column="3" Content="Fast prefilter" IsChecked="{Binding FastPrefilter}" VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <Border Grid.Row="2" BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="10">
+                        <TextBox Text="{Binding LogText}"
+                                 AcceptsReturn="True"
+                                 IsReadOnly="True"
+                                 TextWrapping="Wrap"
+                                 FontFamily="Consolas,Menlo,Monospace"
+                                 FontSize="12"/>
+                    </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Settings">
+                <Grid Margin="18" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="16">
+                    <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="14">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="DaVinci Resolve importer" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="Install the Lua Utility script used by Resolve to import meteors.json as Pink clip markers."
+                                       Foreground="#4B5563"/>
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                <TextBox Text="{Binding ResolveScriptDirectory, Mode=TwoWay}" PlaceholderText="Resolve Fusion/Scripts/Utility directory"/>
+                                <Button Grid.Column="1" Content="Choose directory" Command="{Binding BrowseResolveDirectoryCommand}"/>
+                                <Button Grid.Column="2" Content="Install plugin" Command="{Binding InstallResolvePluginCommand}"/>
+                            </Grid>
+                            <TextBlock Text="{Binding ResolvePluginStatus}" Foreground="#374151"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="1" BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="14">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Runtime" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding RuntimeStatus}" Foreground="#374151"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

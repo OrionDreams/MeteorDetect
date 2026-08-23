@@ -92,3 +92,23 @@ The user explicitly wants CPU optimization first so the software can eventually 
 ## Resolve integration direction (v0.6)
 
 End-user Resolve integration should be an **in-Resolve Lua Utility script**, not a requirement to invoke the importer from an external Python/Distrobox environment. The detector remains external and communicates through `meteors.json`. Keep the Lua importer self-contained and dependency-free where practical; the Python importer is a debugging/reference implementation.
+
+## Desktop application direction
+
+End-user usability should not require console commands or a system Python install. The preferred desktop UI direction is:
+
+- C# + Avalonia for the cross-platform desktop shell;
+- the existing Python detector remains the authoritative headless detection engine;
+- public releases should bundle a private Python runtime, pinned Python dependencies, FFmpeg/ffprobe, detector code and the Resolve Lua importer;
+- do not rely on the user's system Python, NumPy, OpenCV or FFmpeg versions for normal packaged releases;
+- first-run dependency installation is acceptable for development/beta experiments, but the target public release model is a fully bundled runtime.
+
+Expected early release artifacts:
+
+- Windows x64: `.zip`;
+- Linux x64: `.AppImage` plus `.tar.gz` fallback;
+- macOS Apple Silicon / Intel: `.dmg`.
+
+Unsigned builds are acceptable for early releases. Windows users may see SmartScreen warnings and macOS users may need to right-click/Open. Signing and notarization are desirable later, but should not block getting a working cross-platform package.
+
+Distribution can initially use GitHub Releases with website links to the latest release. A few hundred megabytes per platform is acceptable because avoiding dependency friction matters more than minimizing the initial download size.

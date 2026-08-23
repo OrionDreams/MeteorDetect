@@ -20,10 +20,10 @@ Expected current result:
 Run both paths:
 
 ```bash
-python detect.py C2738-00.01.58.243-00.02.00.996.MP4 \
+python -m meteor_detector.cli C2738-00.01.58.243-00.02.00.996.MP4 \
   -o baseline.json --no-diagnostics --profile
 
-python detect.py C2738-00.01.58.243-00.02.00.996.MP4 \
+python -m meteor_detector.cli C2738-00.01.58.243-00.02.00.996.MP4 \
   -o fast.json --no-diagnostics --profile --fast-prefilter
 ```
 
@@ -64,7 +64,7 @@ A duplicated exposure must not be rejected merely because consecutive encoded fr
 ## Syntax smoke test
 
 ```bash
-python -m py_compile detect.py meteor_detector/detector.py resolve_importer/import_meteors.py
+python -m py_compile meteor_detector/cli.py meteor_detector/detector.py resolve_importer/import_meteors.py
 ```
 
 ## JSON sanity checks

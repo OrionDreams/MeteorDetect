@@ -195,7 +195,7 @@ For comparable measurements always use:
 
 and test the exact same input file.
 
-See [PERFORMANCE.md](PERFORMANCE.md) for the optimization roadmap and [TESTING.md](TESTING.md) for regression guidance.
+See [PERFORMANCE.md](docs/PERFORMANCE.md) for the optimization roadmap and [TESTING.md](docs/TESTING.md) for regression guidance.
 
 ## JSON timing
 
@@ -268,11 +268,12 @@ python resolve_importer/import_meteors.py meteors.json
 
 This package deliberately includes repository context for Codex and other coding agents:
 
-- [AGENTS.md](AGENTS.md) — coding-agent instructions and invariants
-- [PROJECT_NOTES.md](PROJECT_NOTES.md) — project history, user requirements and known findings
-- [ARCHITECTURE.md](ARCHITECTURE.md) — current data flow and module responsibilities
-- [PERFORMANCE.md](PERFORMANCE.md) — profiling interpretation and optimization candidates
-- [TESTING.md](TESTING.md) — regression strategy and known-positive tests
-- [CHANGELOG.md](CHANGELOG.md) — version history
+- [AGENTS.md](AGENTS.md) - coding-agent instructions and invariants
+- [PROJECT_NOTES.md](docs/PROJECT_NOTES.md) - project history, user requirements and known findings
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - current data flow and module responsibilities
+- [CSHARP-DOTNET-AVALONIA-MVVM.md](docs/CSHARP-DOTNET-AVALONIA-MVVM.md) - C# .NET and Avalonia guidance
+- [PERFORMANCE.md](docs/PERFORMANCE.md) - profiling interpretation and optimization candidates
+- [TESTING.md](docs/TESTING.md) - regression strategy and known-positive tests
+- [CHANGELOG.md](docs/CHANGELOG.md) - version history
 
-Agents should read `AGENTS.md` and `PROJECT_NOTES.md` before changing detector logic.
+Agents should read `AGENTS.md` and `docs/PROJECT_NOTES.md` before changing detector logic.

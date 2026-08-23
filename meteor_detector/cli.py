@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from meteor_detector import __version__
-from meteor_detector.detector import load_config, scan_file
 
 
 def available_output_path(base: Path) -> Path:
@@ -44,6 +43,8 @@ def main() -> int:
         ap.error("--fast-prefilter and --no-fast-prefilter are mutually exclusive")
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         ap.error("ffmpeg and ffprobe must be installed and available on PATH")
+
+    from meteor_detector.detector import load_config, scan_file
 
     cfg = load_config(args.config)
     if args.no_diagnostics:
