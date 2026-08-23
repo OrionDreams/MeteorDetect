@@ -7,3 +7,4 @@ __pycache__/
 src/**/bin/
 src/**/obj/
 /artifacts/
+local-*

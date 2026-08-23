@@ -12,68 +12,201 @@
         Height="720"
         MinWidth="900"
         MinHeight="620">
-    <DockPanel>
-        <Border DockPanel.Dock="Top" Padding="18,14" Background="#20242B">
-            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                <StackPanel>
-                    <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold" Foreground="White"/>
-                    <TextBlock Text="Detect meteors in source clips and import them into DaVinci Resolve as Pink clip markers."
-                               Foreground="#C8D0DA"/>
+    <Window.Resources>
+        <SolidColorBrush x:Key="AppBackgroundBrush" Color="#090B10"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#111721"/>
+        <SolidColorBrush x:Key="PanelAltBrush" Color="#151B26"/>
+        <SolidColorBrush x:Key="PanelSoftBrush" Color="#1B2230"/>
+        <SolidColorBrush x:Key="BorderBrushMuted" Color="#283141"/>
+        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F1F5F9"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#AAB4C1"/>
+        <SolidColorBrush x:Key="TextMutedBrush" Color="#768395"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#F08A24"/>
+        <SolidColorBrush x:Key="AccentPressedBrush" Color="#C96717"/>
+        <SolidColorBrush x:Key="MarkerBrush" Color="#F25CAA"/>
+    </Window.Resources>
+
+    <Window.Styles>
+        <Style Selector="Window">
+            <Setter Property="FontFamily" Value="Inter, Segoe UI, sans-serif"/>
+            <Setter Property="Background" Value="{StaticResource AppBackgroundBrush}"/>
+        </Style>
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.secondary">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.muted">
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="Border.panel">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushMuted}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="Border.tile">
+            <Setter Property="Background" Value="{StaticResource PanelAltBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushMuted}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Padding" Value="14"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Padding" Value="16,7"/>
+            <Setter Property="Background" Value="{StaticResource PanelSoftBrush}"/>
+            <Setter Property="BorderBrush" Value="#384354"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="Button:pointerover">
+            <Setter Property="Background" Value="#222B39"/>
+            <Setter Property="BorderBrush" Value="#4A5668"/>
+        </Style>
+        <Style Selector="Button.primary">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="#101217"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style Selector="Button.primary:pointerover">
+            <Setter Property="Background" Value="#FF9A37"/>
+            <Setter Property="BorderBrush" Value="#FF9A37"/>
+        </Style>
+        <Style Selector="Button.primary:pressed">
+            <Setter Property="Background" Value="{StaticResource AccentPressedBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource AccentPressedBrush}"/>
+        </Style>
+        <Style Selector="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        </Style>
+        <Style Selector="ProgressBar">
+            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Background" Value="#202838"/>
+            <Setter Property="CornerRadius" Value="999"/>
+        </Style>
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="#0D121A"/>
+            <Setter Property="BorderBrush" Value="#303A4B"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+        <Style Selector="ListBox">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="CornerRadius" Value="7"/>
+        </Style>
+        <Style Selector="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="TabItem">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="Padding" Value="18,12"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+        </Style>
+        <Style Selector="TabItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </Window.Styles>
+
+    <Grid RowDefinitions="Auto,*" Background="{StaticResource AppBackgroundBrush}">
+        <Border Grid.RowSpan="2" IsHitTestVisible="False" Opacity="0.65">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                    <GradientStop Color="#131823" Offset="0"/>
+                    <GradientStop Color="#090B10" Offset="0.42"/>
+                    <GradientStop Color="#140D17" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+
+        <Border Padding="22,16" Background="#121821">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+                <Border Width="38" Height="38" CornerRadius="8" Background="{StaticResource AccentBrush}" VerticalAlignment="Center">
+                    <TextBlock Text="M" Foreground="#111217" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold"/>
+                    <TextBlock Classes="secondary"
+                               Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
                 </StackPanel>
-                <Button Grid.Column="1" Content="Open files" Command="{Binding AddFilesCommand}" MinWidth="112"/>
-                <Button Grid.Column="2" Content="Detect" Command="{Binding DetectCommand}" MinWidth="112"/>
+                <Button Grid.Column="2" Content="Open files" Command="{Binding AddFilesCommand}" MinWidth="116"/>
+                <Button Grid.Column="3" Classes="primary" Content="Detect" Command="{Binding DetectCommand}" MinWidth="116"/>
             </Grid>
         </Border>
 
-        <TabControl>
+        <TabControl Grid.Row="1" TabStripPlacement="Left" Margin="18">
             <TabItem Header="Files">
-                <Grid Margin="18" RowDefinitions="*,Auto,Auto,Auto" RowSpacing="12">
-                    <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="0">
+                <Grid Margin="18,0,0,0" RowDefinitions="Auto,*,Auto,Auto,Auto" RowSpacing="14">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <StackPanel>
+                            <TextBlock Text="Source Clips" FontSize="22" FontWeight="SemiBold"/>
+                            <TextBlock Classes="secondary" Text="Batch detection runs through the Python detector and writes JSON for Resolve import."/>
+                        </StackPanel>
+                        <CheckBox Grid.Column="1" Content="Fast prefilter" IsChecked="{Binding FastPrefilter}" VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <Border Grid.Row="1" Classes="panel" Padding="10">
                         <ListBox ItemsSource="{Binding Clips}" SelectedItem="{Binding SelectedClip, Mode=TwoWay}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ClipItemViewModel">
-                                    <Grid ColumnDefinitions="2*,*,1.4*,Auto" Margin="10,8" ColumnSpacing="12">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                                            <TextBlock Text="{Binding Path}" Foreground="#6B7280" FontSize="12"/>
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="1" Text="{Binding Duration}" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Status}" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="3" Text="{Binding EventSummary}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                                    </Grid>
+                                    <Border Classes="tile">
+                                        <Grid ColumnDefinitions="2.1*,*,1.2*,Auto" ColumnSpacing="18">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding Path}" Classes="muted"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
+                                            <Border Grid.Column="2" Background="#202838" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                            </Border>
+                                            <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </Border>
 
-                    <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+                    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
                         <Button Content="Remove selected" Command="{Binding RemoveSelectedCommand}"/>
                         <Button Grid.Column="1" Content="Clear" Command="{Binding ClearCommand}"/>
-                        <TextBlock Grid.Column="2" Text="{Binding OutputPath}" VerticalAlignment="Center" Foreground="#4B5563"/>
-                        <CheckBox Grid.Column="3" Content="Fast prefilter" IsChecked="{Binding FastPrefilter}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{Binding OutputPath}" Classes="muted" VerticalAlignment="Center"/>
                     </Grid>
 
-                    <Grid Grid.Row="2" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
-                        <TextBlock Text="{Binding RemainingTimeText}" Foreground="#4B5563" HorizontalAlignment="Right"/>
-                        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <ProgressBar Value="{Binding ProgressPercentage}" Minimum="0" Maximum="100" Height="12" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="1" Text="{Binding ProgressPercentText}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                    <Border Grid.Row="3" Classes="panel" Padding="14">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                            <TextBlock Text="{Binding RemainingTimeText}" Classes="secondary" HorizontalAlignment="Right"/>
+                            <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                <ProgressBar Value="{Binding ProgressPercentage}" Minimum="0" Maximum="100" Height="10" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{Binding ProgressPercentText}" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                            </Grid>
+                            <ProgressBar Grid.Row="2"
+                                         Minimum="0"
+                                         Maximum="100"
+                                         Height="3"
+                                         IsIndeterminate="True"
+                                         IsVisible="{Binding IsDetecting}"/>
+                            <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
+                                <TextBlock Text="{Binding ProcessedFramesText}" Classes="muted"/>
+                                <TextBlock Grid.Column="1" Text="{Binding FramesPerSecondText}" Classes="muted"/>
+                                <TextBlock Grid.Column="2" Text="{Binding CandidateFramesText}" Classes="muted"/>
+                            </Grid>
                         </Grid>
-                        <ProgressBar Grid.Row="2"
-                                     Minimum="0"
-                                     Maximum="100"
-                                     Height="3"
-                                     IsIndeterminate="True"
-                                     IsVisible="{Binding IsDetecting}"/>
-                        <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
-                            <TextBlock Text="{Binding ProcessedFramesText}" Foreground="#4B5563"/>
-                            <TextBlock Grid.Column="1" Text="{Binding FramesPerSecondText}" Foreground="#4B5563"/>
-                            <TextBlock Grid.Column="2" Text="{Binding CandidateFramesText}" Foreground="#4B5563"/>
-                        </Grid>
-                    </Grid>
+                    </Border>
 
-                    <Expander Grid.Row="3" Header="Show logs" IsExpanded="False" HorizontalAlignment="Stretch">
-                        <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="10" HorizontalAlignment="Stretch">
+                    <Expander Grid.Row="4" Header="Detector log" IsExpanded="False" HorizontalAlignment="Stretch">
+                        <Border Classes="panel" Padding="10" HorizontalAlignment="Stretch">
                             <TextBox Text="{Binding LogText}"
                                      behaviors:LogAutoScroll.AutoScrollToEnd="True"
                                      AcceptsReturn="True"
@@ -88,70 +221,82 @@
             </TabItem>
 
             <TabItem Header="History">
-                <Grid Margin="18" RowDefinitions="*,Auto" RowSpacing="12">
-                    <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="0">
+                <Grid Margin="18,0,0,0" RowDefinitions="Auto,*,Auto" RowSpacing="14">
+                    <StackPanel>
+                        <TextBlock Text="Processing History" FontSize="22" FontWeight="SemiBold"/>
+                        <TextBlock Classes="secondary" Text="Successful runs are recorded here independently from detector JSON output files."/>
+                    </StackPanel>
+
+                    <Border Grid.Row="1" Classes="panel" Padding="10">
                         <ListBox ItemsSource="{Binding HistoryEntries}" SelectedItem="{Binding SelectedHistoryEntry, Mode=TwoWay}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ProcessingHistoryEntryViewModel">
-                                    <Grid ColumnDefinitions="2.4*,Auto,Auto,Auto" Margin="10,8" ColumnSpacing="18">
-                                        <StackPanel>
-                                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/>
-                                            <TextBlock Text="{Binding ClipPath}" Foreground="#6B7280" FontSize="12"/>
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="1" Text="{Binding Duration}" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding MeteorCount}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                                        <TextBlock Grid.Column="3" Text="{Binding DetectedAt}" VerticalAlignment="Center" Foreground="#4B5563"/>
-                                    </Grid>
+                                    <Border Classes="tile">
+                                        <Grid ColumnDefinitions="2.3*,Auto,Auto,Auto" ColumnSpacing="18">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding ClipPath}" Classes="muted"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
+                                            <Border Grid.Column="2" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding MeteorCount}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
+                                            </Border>
+                                            <TextBlock Grid.Column="3" Text="{Binding DetectedAt}" Classes="muted" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
                     </Border>
 
-                    <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+                    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
                         <Button Content="Remove selected" Command="{Binding RemoveSelectedHistoryEntryCommand}"/>
                         <Button Grid.Column="1" Content="Clear history" Command="{Binding ClearHistoryCommand}"/>
-                        <TextBlock Grid.Column="2"
-                                   Text="History entries are independent from detector JSON output files."
-                                   VerticalAlignment="Center"
-                                   Foreground="#4B5563"/>
                     </Grid>
                 </Grid>
             </TabItem>
 
             <TabItem Header="Settings">
-                <Grid Margin="18" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="16">
-                    <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="14">
+                <Grid Margin="18,0,0,0" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="14">
+                    <StackPanel>
+                        <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold"/>
+                        <TextBlock Classes="secondary" Text="Resolve importer location, output behavior and detector runtime."/>
+                    </StackPanel>
+
+                    <Border Grid.Row="1" Classes="tile">
                         <StackPanel Spacing="10">
-                            <TextBlock Text="DaVinci Resolve importer" FontSize="18" FontWeight="SemiBold"/>
-                            <TextBlock Text="Install the Lua Utility script used by Resolve to import meteors.json as Pink clip markers."
-                                       Foreground="#4B5563"/>
+                            <TextBlock Text="DaVinci Resolve Importer" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="Install the Lua Utility script used by Resolve to import meteor JSON as Pink clip markers."
+                                       Classes="secondary"/>
                             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                                 <TextBox Text="{Binding ResolveScriptDirectory, Mode=TwoWay}" PlaceholderText="Resolve Fusion/Scripts/Utility directory"/>
                                 <Button Grid.Column="1" Content="Choose directory" Command="{Binding BrowseResolveDirectoryCommand}"/>
-                                <Button Grid.Column="2" Content="Install plugin" Command="{Binding InstallResolvePluginCommand}"/>
+                                <Button Grid.Column="2" Classes="primary" Content="Install plugin" Command="{Binding InstallResolvePluginCommand}"/>
                             </Grid>
-                            <TextBlock Text="{Binding ResolvePluginStatus}" Foreground="#374151"/>
+                            <TextBlock Text="{Binding ResolvePluginStatus}" Classes="secondary"/>
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Row="1" BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="14">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="Output" FontSize="18" FontWeight="SemiBold"/>
-                            <CheckBox Content="Write multiple clips into one JSON file"
-                                      IsChecked="{Binding WriteCombinedJson}"/>
-                            <TextBlock Text="When off, each clip gets its own timestamped JSON next to the source video."
-                                       Foreground="#4B5563"/>
-                        </StackPanel>
-                    </Border>
+                    <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="14">
+                        <Border Classes="tile">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Output" FontSize="18" FontWeight="SemiBold"/>
+                                <CheckBox Content="Write multiple clips into one JSON file"
+                                          IsChecked="{Binding WriteCombinedJson}"/>
+                                <TextBlock Text="When off, each clip gets its own timestamped JSON next to the source video."
+                                           Classes="secondary"/>
+                            </StackPanel>
+                        </Border>
 
-                    <Border Grid.Row="2" BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="14">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="Runtime" FontSize="18" FontWeight="SemiBold"/>
-                            <TextBlock Text="{Binding RuntimeStatus}" Foreground="#374151"/>
-                        </StackPanel>
-                    </Border>
+                        <Border Grid.Column="1" Classes="tile">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Runtime" FontSize="18" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding RuntimeStatus}" Classes="secondary"/>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </Grid>
             </TabItem>
         </TabControl>
-    </DockPanel>
+    </Grid>
 </Window>

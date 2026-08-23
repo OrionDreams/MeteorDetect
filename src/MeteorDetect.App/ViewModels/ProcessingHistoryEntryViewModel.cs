@@ -25,7 +25,7 @@ public sealed partial class ProcessingHistoryEntryViewModel : ObservableObject
         ? FormatDuration(TimeSpan.FromSeconds(seconds))
         : "Unknown length";
 
-    public string MeteorCount => $"{Entry.MeteorCount:N0} meteor(s)";
+    public string MeteorCount => $"{Entry.MeteorCount:N0} meteors";
 
     public string DetectedAt => Entry.DetectedAtUtc
         .ToLocalTime()
