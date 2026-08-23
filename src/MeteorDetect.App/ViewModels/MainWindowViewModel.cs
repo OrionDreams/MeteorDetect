@@ -31,6 +31,10 @@ public partial class MainWindowViewModel : ObservableObject
     private ClipItemViewModel? _selectedClip;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RemoveSelectedHistoryEntryCommand))]
+    private ProcessingHistoryEntryViewModel? _selectedHistoryEntry;
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DetectCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddFilesCommand))]
     private bool _isDetecting;
@@ -94,6 +98,8 @@ public partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<ClipItemViewModel> Clips { get; } = [];
 
+    public ObservableCollection<ProcessingHistoryEntryViewModel> HistoryEntries { get; } = [];
+
     [RelayCommand(CanExecute = nameof(CanAddFiles))]
     private async Task AddFilesAsync()
     {
@@ -156,6 +162,7 @@ public partial class MainWindowViewModel : ObservableObject
                 }
             }
 
+            await AddSuccessfulClipsToHistoryAsync(result.Clips);
             OutputPath = result.IsCombinedOutput
                 ? $"Output: {result.PrimaryOutputPath}"
                 : $"Output: {result.OutputPaths.Count} JSON file(s)";
@@ -196,6 +203,27 @@ public partial class MainWindowViewModel : ObservableObject
         {
             IsDetecting = false;
         }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRemoveSelectedHistoryEntry))]
+    private async Task RemoveSelectedHistoryEntryAsync()
+    {
+        if (SelectedHistoryEntry is null)
+        {
+            return;
+        }
+
+        await ProcessingHistoryStore.RemoveEntryAsync(SelectedHistoryEntry.Id);
+        HistoryEntries.Remove(SelectedHistoryEntry);
+        SelectedHistoryEntry = null;
+    }
+
+    [RelayCommand]
+    private async Task ClearHistoryAsync()
+    {
+        await ProcessingHistoryStore.ClearAsync();
+        HistoryEntries.Clear();
+        SelectedHistoryEntry = null;
     }
 
     [RelayCommand(CanExecute = nameof(CanRemoveSelected))]
@@ -265,8 +293,57 @@ public partial class MainWindowViewModel : ObservableObject
         _settings.ResolveScriptDirectory ??= RuntimePaths.FirstExistingResolveUtilityDirectory();
         ResolveScriptDirectory = _settings.ResolveScriptDirectory ?? "";
         WriteCombinedJson = _settings.WriteCombinedJson;
+        await LoadHistoryAsync();
         await SettingsStore.SaveAsync(_settings);
         RefreshResolvePluginStatus();
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        var history = await ProcessingHistoryStore.LoadAsync();
+        HistoryEntries.Clear();
+        foreach (var entry in history.Entries.OrderByDescending(entry => entry.DetectedAtUtc))
+        {
+            HistoryEntries.Add(new ProcessingHistoryEntryViewModel(entry));
+        }
+    }
+
+    private async Task AddSuccessfulClipsToHistoryAsync(IReadOnlyList<ClipDetectionResult> results)
+    {
+        var entries = results
+            .Where(result => result.Succeeded)
+            .Select(CreateHistoryEntry)
+            .ToList();
+
+        if (entries.Count == 0)
+        {
+            return;
+        }
+
+        await ProcessingHistoryStore.AddEntriesAsync(entries);
+        foreach (var entry in entries.OrderByDescending(entry => entry.DetectedAtUtc))
+        {
+            HistoryEntries.Insert(0, new ProcessingHistoryEntryViewModel(entry));
+        }
+    }
+
+    private static ProcessingHistoryEntry CreateHistoryEntry(ClipDetectionResult result)
+    {
+        var fileInfo = new FileInfo(result.ClipPath);
+        return new ProcessingHistoryEntry
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            ClipPath = result.ClipPath,
+            FileName = Path.GetFileName(result.ClipPath),
+            DurationSeconds = result.DurationSeconds,
+            MeteorCount = result.EventCount,
+            DetectedAtUtc = DateTimeOffset.UtcNow,
+            OutputJsonPath = result.JsonPath,
+            DetectorVersion = result.DetectorVersion,
+            FastPrefilter = result.FastPrefilter,
+            FileSizeBytes = fileInfo.Exists ? fileInfo.Length : null,
+            LastWriteTimeUtc = fileInfo.Exists ? fileInfo.LastWriteTimeUtc : null
+        };
     }
 
     private async Task LoadDurationAsync(ClipItemViewModel clip)
@@ -481,4 +558,6 @@ public partial class MainWindowViewModel : ObservableObject
     private bool CanDetect() => !IsDetecting && Clips.Count > 0;
 
     private bool CanRemoveSelected() => SelectedClip is not null;
+
+    private bool CanRemoveSelectedHistoryEntry() => SelectedHistoryEntry is not null;
 }

@@ -8,7 +8,15 @@ using System.Threading.Tasks;
 
 namespace MeteorDetect.App;
 
-public sealed record ClipDetectionResult(string ClipPath, string JsonPath, int EventCount, bool Succeeded, string? Error);
+public sealed record ClipDetectionResult(
+    string ClipPath,
+    string JsonPath,
+    int EventCount,
+    bool Succeeded,
+    string? Error,
+    double? DurationSeconds,
+    string? DetectorVersion,
+    bool FastPrefilter);
 
 public sealed record DetectionBatchResult(
     IReadOnlyList<string> OutputPaths,
@@ -90,7 +98,7 @@ public sealed class DetectionService
             {
                 updateClipStatus?.Invoke(clipPath, "Failed");
                 var error = result.StandardError.Trim();
-                results.Add(new ClipDetectionResult(clipPath, clipOutput, 0, false, error));
+                results.Add(new ClipDetectionResult(clipPath, clipOutput, 0, false, error, null, null, fastPrefilter));
                 failureElements.Add(CreateFailureElement(clipPath, error));
                 continue;
             }
@@ -110,7 +118,22 @@ public sealed class DetectionService
                 var clone = file.Clone();
                 fileElements.Add(clone);
                 var eventCount = clone.TryGetProperty("events", out var events) ? events.GetArrayLength() : 0;
-                results.Add(new ClipDetectionResult(clipPath, clipOutput, eventCount, true, null));
+                var historyClipPath = clone.TryGetProperty("path", out var pathElement)
+                    ? pathElement.GetString() ?? clipPath
+                    : clipPath;
+                var durationSeconds = clone.TryGetProperty("duration_seconds", out var durationElement)
+                    && durationElement.TryGetDouble(out var parsedDuration)
+                        ? (double?)parsedDuration
+                        : null;
+                results.Add(new ClipDetectionResult(
+                    historyClipPath,
+                    clipOutput,
+                    eventCount,
+                    true,
+                    null,
+                    durationSeconds,
+                    detectorVersion,
+                    fastPrefilter));
             }
 
             foreach (var failure in root.GetProperty("failures").EnumerateArray())
@@ -132,6 +155,9 @@ public sealed class DetectionService
                 failureElements,
                 cancellationToken);
             outputPaths.Add(combinedPath);
+            results = results
+                .Select(result => result.Succeeded ? result with { JsonPath = combinedPath } : result)
+                .ToList();
         }
 
         var totalEvents = results.Where(r => r.Succeeded).Sum(r => r.EventCount);
