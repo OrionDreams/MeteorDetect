@@ -27,7 +27,7 @@
 
         <TabControl>
             <TabItem Header="Clips">
-                <Grid Margin="18" RowDefinitions="*,Auto,120" RowSpacing="12">
+                <Grid Margin="18" RowDefinitions="*,Auto,Auto" RowSpacing="12">
                     <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="0">
                         <ListBox ItemsSource="{Binding Clips}" SelectedItem="{Binding SelectedClip, Mode=TwoWay}">
                             <ListBox.ItemTemplate>
@@ -53,15 +53,18 @@
                         <CheckBox Grid.Column="3" Content="Fast prefilter" IsChecked="{Binding FastPrefilter}" VerticalAlignment="Center"/>
                     </Grid>
 
-                    <Border Grid.Row="2" BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="10">
-                        <TextBox Text="{Binding LogText}"
-                                 behaviors:LogAutoScroll.AutoScrollToEnd="True"
-                                 AcceptsReturn="True"
-                                 IsReadOnly="True"
-                                 TextWrapping="Wrap"
-                                 FontFamily="Consolas,Menlo,Monospace"
-                                 FontSize="12"/>
-                    </Border>
+                    <Expander Grid.Row="2" Header="Show logs" IsExpanded="False" HorizontalAlignment="Stretch">
+                        <Border BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="10" HorizontalAlignment="Stretch">
+                            <TextBox Text="{Binding LogText}"
+                                     behaviors:LogAutoScroll.AutoScrollToEnd="True"
+                                     AcceptsReturn="True"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     FontFamily="Consolas,Menlo,Monospace"
+                                     FontSize="12"
+                                     MinHeight="120"/>
+                        </Border>
+                    </Expander>
                 </Grid>
             </TabItem>
 
