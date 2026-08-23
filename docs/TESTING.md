@@ -67,9 +67,27 @@ A duplicated exposure must not be rejected merely because consecutive encoded fr
 python -m py_compile meteor_detector/cli.py meteor_detector/detector.py resolve_importer/import_meteors.py
 ```
 
+## Desktop UI smoke test
+
+For changes touching `src/MeteorDetect.App` or the app build scripts:
+
+```bash
+dotnet build MeteorDetect.slnx
+```
+
+When practical, run:
+
+```bash
+tools/dev-app.sh
+```
+
+Verify that files can be added, detection can be started, progress updates appear, logs expand and auto-scroll, successful runs enter History, and the Settings tab reports the Resolve Lua importer status.
+
 ## JSON sanity checks
 
 - `fps_num` / `fps_den` remain rational source metadata.
 - event frames are integers.
 - profiling appears only when requested.
 - enabling the prefilter is recorded in `config.fast_prefilter` and file-level `fast_prefilter`.
+- per-clip mode writes one JSON payload per processed clip by default.
+- combined mode still writes a single payload containing all successful files and failures.

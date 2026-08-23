@@ -44,10 +44,12 @@ Future ideas, not required for current versions:
 Keep detection independent of DaVinci Resolve.
 
 1. external Python/FFmpeg/OpenCV detector scans video;
-2. detector writes `meteors.json` using source frame numbers;
-3. separate Resolve Python importer matches filenames and adds clip markers.
+2. detector writes JSON using source frame numbers, currently one timestamped JSON file per clip by default;
+3. Resolve Lua importer matches filenames and adds Pink clip markers to timeline clips.
 
 This separation is intentional for safety, tuning and batch processing.
+
+The older external Python Resolve importer remains available as a debugging/reference implementation, but it is not the preferred end-user path.
 
 ## Detection history
 
@@ -73,6 +75,12 @@ User's target is closer to 100,000 frames in ~10 minutes if feasible.
 
 Adds profiling and an experimental coarse CPU prefilter. See `PERFORMANCE.md`.
 
+### v0.6
+
+Adds the first desktop application around the detector, plus the self-contained in-Resolve Lua importer. The app can load multiple clips, run detection through the Python CLI, show progress parsed from detector stderr, install the Lua importer, and keep a local processing history.
+
+The CLI and UI now default to per-clip JSON output. Combined multi-clip JSON remains available for compatibility, but normal Resolve import should expect one JSON per processed clip.
+
 ## Real sample findings
 
 The user supplied an original 4K sample:
@@ -91,7 +99,7 @@ The user explicitly wants CPU optimization first so the software can eventually 
 
 ## Resolve integration direction (v0.6)
 
-End-user Resolve integration should be an **in-Resolve Lua Utility script**, not a requirement to invoke the importer from an external Python/Distrobox environment. The detector remains external and communicates through `meteors.json`. Keep the Lua importer self-contained and dependency-free where practical; the Python importer is a debugging/reference implementation.
+End-user Resolve integration should be an **in-Resolve Lua Utility script**, not a requirement to invoke the importer from an external Python/Distrobox environment. The detector remains external and communicates through detector JSON files. Keep the Lua importer self-contained and dependency-free where practical; the Python importer is a debugging/reference implementation.
 
 ## Desktop application direction
 
@@ -99,6 +107,7 @@ End-user usability should not require console commands or a system Python instal
 
 - C# + Avalonia for the cross-platform desktop shell;
 - the existing Python detector remains the authoritative headless detection engine;
+- the desktop app is an orchestration layer: it loads clips, starts detector subprocesses, parses progress logs, shows status/results and helps install the Resolve Lua importer;
 - public releases should bundle a private Python runtime, pinned Python dependencies, FFmpeg/ffprobe, detector code and the Resolve Lua importer;
 - do not rely on the user's system Python, NumPy, OpenCV or FFmpeg versions for normal packaged releases;
 - first-run dependency installation is acceptable for development/beta experiments, but the target public release model is a fully bundled runtime.

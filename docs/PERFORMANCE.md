@@ -26,6 +26,8 @@ python -m meteor_detector.cli INPUT.MP4 -o profile-fast.json --no-diagnostics --
 
 Compare the exact same video.
 
+Detector progress is intentionally coarse. The Python detector reports every 100 decoded frames and once at completion so the desktop UI can update progress without per-frame logging overhead.
+
 ### Stage meanings
 
 `decode_wait`

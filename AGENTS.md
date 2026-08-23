@@ -56,8 +56,8 @@ When optimizing, compare both runtime and meteor recall against the same known-p
 - Keep external dependencies minimal: NumPy, OpenCV, FFmpeg/ffprobe.
 - Prefer explicit, readable numerical code over clever abstractions in hot loops.
 - Add comments where a calculation exists for a non-obvious meteor-domain reason.
-- Avoid per-frame logging other than existing coarse progress messages.
-- Avoid adding large debug data to `meteors.json` by default.
+- Avoid per-frame logging; the detector currently emits coarse progress every 100 decoded frames and once at completion for the UI.
+- Avoid adding large debug data to meteor JSON by default.
 - Diagnostic images are optional and must remain disableable with `--no-diagnostics`.
 
 ## Before committing an algorithm change

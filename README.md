@@ -16,6 +16,10 @@ The detector itself is independent of Resolve. By default, it writes one JSON fi
 
 ## What's new in v0.6
 
+- Added a first-pass **Avalonia desktop UI** for loading clips, running detection, watching progress and installing the Resolve Lua importer.
+- Added UI progress reporting: progress bar, processed frame count, approximate fps, remaining-time countdown, candidate count and expandable auto-scrolling logs.
+- Added processing history for successful clips.
+- Made per-clip JSON the default output mode for both CLI and UI; combined multi-clip JSON remains available as an option.
 - Added a self-contained **Lua importer** that runs from Resolve's Workspace → Scripts menu.
 - Added an in-Resolve JSON file-selection workflow with non-interactive fallbacks.
 - Added `resolve_importer/README_LUA.md` with installation and usage instructions.
@@ -139,6 +143,36 @@ If `fast_prefilter` is enabled in a config and you want to force it off:
 ```bash
 bin/detect-meteors.sh C2752.MP4 --config config.json --no-fast-prefilter
 ```
+
+The detector prints coarse progress to stderr every 100 decoded frames and once more at completion, for example:
+
+```text
+[C2752.MP4] frame 1200/25000, candidates=3
+```
+
+The desktop UI parses these messages for its progress display.
+
+## Desktop UI
+
+Run the development UI:
+
+```bash
+tools/dev-app.sh
+```
+
+The app is a C# / Avalonia shell around the existing Python detector. It currently supports:
+
+- opening one or more source clips;
+- showing clip duration, status and detected event count;
+- running the Python detector with `--no-diagnostics --profile`;
+- optional fast prefilter;
+- per-clip timestamped JSON output by default, written next to each source clip;
+- optional combined JSON output for multiple clips;
+- progress bar, processed frames, approximate speed, remaining-time estimate and expandable logs;
+- history of successful detection runs;
+- detecting or choosing the Resolve `Fusion/Scripts/Utility` directory and installing `Import Meteors.lua`.
+
+Development builds use a bundled runtime if present under `runtime/python` and `runtime/ffmpeg`; otherwise they fall back to `.venv` and then the platform Python executable. Public releases should bundle their own runtime.
 
 ## How the main detector works
 

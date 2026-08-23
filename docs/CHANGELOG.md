@@ -2,6 +2,12 @@
 
 ## 0.6.0
 
+- Added a C# / Avalonia desktop app for loading clips and launching the Python detector.
+- Added UI progress display with processed frames, approximate fps, remaining-time countdown, candidate count and expandable auto-scrolling logs.
+- Added processing history for successful clip detections.
+- Added Resolve importer installation support from the app Settings tab.
+- Changed default detector output to one timestamped JSON file per source clip; combined output remains available with `--output-mode combined` or the UI setting.
+- Detector progress is now reported every 100 decoded frames and again at completion.
 - Added `resolve_importer/Import Meteors.lua`, a self-contained in-Resolve importer.
 - Lua importer reads detector JSON without external Lua dependencies.
 - Adds Pink markers to matching TimelineItem clips and skips detections trimmed out of an edit.
