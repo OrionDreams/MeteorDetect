@@ -630,6 +630,14 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
         processed_through = max(processed_through, end)
 
     last_idx = -1
+    last_progress_reported = 0
+
+    def report_progress(processed_frames: int) -> None:
+        nonlocal last_progress_reported
+        suffix = f"/{estimated}" if estimated else ""
+        print(f"[{path.name}] frame {processed_frames}{suffix}, candidates={len(all_candidates)}", file=sys.stderr)
+        last_progress_reported = processed_frames
+
     frames_iter = iter(ffmpeg_frames(path, sw, sh))
     i = 0
     while True:
@@ -649,15 +657,18 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
             keep_from = min(next_anchor - half, processed_through + 1)
             while buf and buf[0][0] < keep_from:
                 buf.popleft()
-        if i and i % 1000 == 0:
-            suffix = f"/{estimated}" if estimated else ""
-            print(f"[{path.name}] frame {i}{suffix}, candidates={len(all_candidates)}", file=sys.stderr)
+        decoded_frames = i + 1
+        if decoded_frames % 100 == 0:
+            report_progress(decoded_frames)
         i += 1
 
     max_target = last_idx - half
     while next_anchor <= max_target and buf and next_anchor + half <= last_idx:
         process_anchor(next_anchor)
         next_anchor += model_stride
+
+    if i and i != last_progress_reported:
+        report_progress(i)
 
     tg = time.perf_counter()
     events = group_events(path.name, all_candidates, cfg)
