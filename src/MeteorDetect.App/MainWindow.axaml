@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:behaviors="clr-namespace:MeteorDetect.App.Behaviors"
         xmlns:vm="clr-namespace:MeteorDetect.App.ViewModels"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
         x:Class="MeteorDetect.App.MainWindow"
@@ -54,6 +55,7 @@
 
                     <Border Grid.Row="2" BorderBrush="#CDD3DA" BorderThickness="1" CornerRadius="6" Padding="10">
                         <TextBox Text="{Binding LogText}"
+                                 behaviors:LogAutoScroll.AutoScrollToEnd="True"
                                  AcceptsReturn="True"
                                  IsReadOnly="True"
                                  TextWrapping="Wrap"
