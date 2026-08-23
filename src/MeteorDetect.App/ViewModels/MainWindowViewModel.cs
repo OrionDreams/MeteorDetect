@@ -174,7 +174,7 @@ public partial class MainWindowViewModel : ObservableObject
             {
                 await _userInteraction.ShowNoticeAsync(
                     "Detection finished",
-                    $"Wrote:\n{result.CombinedJsonPath}\n\nIn DaVinci Resolve, choose Workspace > Scripts > Import Meteors, then select this JSON file to add Pink clip markers.");
+                    $"Meteor Events: {result.EventCount}\n\nWrote:\n{result.CombinedJsonPath}\n\nIn DaVinci Resolve, choose Workspace > Scripts > Import Meteors, then select this JSON file to add Pink clip markers.");
             }
         }
         catch (Exception ex)
