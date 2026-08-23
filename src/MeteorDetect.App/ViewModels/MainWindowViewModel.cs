@@ -17,11 +17,14 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly DetectorRuntime _runtime;
     private readonly DetectionService _detectionService;
     private readonly IUserInteractionService _userInteraction;
+    private readonly DispatcherTimer _remainingTimeTimer;
     private readonly Queue<double> _recentFrameRates = new();
     private AppSettings _settings = new();
     private DateTimeOffset? _previousProgressObservedAt;
     private long? _previousProgressFrames;
     private long? _previousProgressTotalFrames;
+    private DateTimeOffset? _remainingTimeEstimatedAt;
+    private double? _remainingSecondsAtEstimate;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedCommand))]
@@ -77,6 +80,11 @@ public partial class MainWindowViewModel : ObservableObject
         _detectionService = detectionService;
         _userInteraction = userInteraction;
         _runtimeStatus = $"Detector: {_runtime.DetectScript}\nPython: {_runtime.PythonExecutable}";
+        _remainingTimeTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _remainingTimeTimer.Tick += (_, _) => RefreshRemainingTimeCountdown(DateTimeOffset.Now);
 
         _ = InitializeAsync();
     }
@@ -293,6 +301,17 @@ public partial class MainWindowViewModel : ObservableObject
         LogText += $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
     }
 
+    partial void OnIsDetectingChanged(bool value)
+    {
+        if (value)
+        {
+            _remainingTimeTimer.Start();
+            return;
+        }
+
+        _remainingTimeTimer.Stop();
+    }
+
     private void UpdateProgressFromLog(string message, DateTimeOffset observedAt)
     {
         var match = DetectorProgressPattern.Match(message);
@@ -329,13 +348,34 @@ public partial class MainWindowViewModel : ObservableObject
         FramesPerSecondText = averagedFramesPerSecond is null
             ? "Speed: -- fps"
             : $"Speed: {Math.Round(averagedFramesPerSecond.Value):N0} fps";
-        RemainingTimeText = averagedFramesPerSecond is null || averagedFramesPerSecond <= 0
-            ? "Remaining: --"
-            : $"Remaining: {FormatDuration((totalFrames - processedFrames) / averagedFramesPerSecond.Value)}";
+        if (averagedFramesPerSecond is null || averagedFramesPerSecond <= 0)
+        {
+            _remainingTimeEstimatedAt = null;
+            _remainingSecondsAtEstimate = null;
+            RemainingTimeText = "Remaining: --";
+        }
+        else
+        {
+            _remainingTimeEstimatedAt = observedAt;
+            _remainingSecondsAtEstimate = Math.Max(0, (totalFrames - processedFrames) / averagedFramesPerSecond.Value);
+            RefreshRemainingTimeCountdown(observedAt);
+        }
 
         _previousProgressObservedAt = observedAt;
         _previousProgressFrames = processedFrames;
         _previousProgressTotalFrames = totalFrames;
+    }
+
+    private void RefreshRemainingTimeCountdown(DateTimeOffset now)
+    {
+        if (_remainingTimeEstimatedAt is not { } estimatedAt || _remainingSecondsAtEstimate is not { } estimatedSeconds)
+        {
+            return;
+        }
+
+        var elapsedSinceEstimate = Math.Max(0, (now - estimatedAt).TotalSeconds);
+        var remainingSeconds = Math.Max(0, estimatedSeconds - elapsedSinceEstimate);
+        RemainingTimeText = $"Remaining: {FormatDuration(remainingSeconds)}";
     }
 
     private double? CalculateAveragedFramesPerSecond(DateTimeOffset observedAt, long processedFrames)
@@ -366,7 +406,13 @@ public partial class MainWindowViewModel : ObservableObject
         _previousProgressObservedAt = null;
         _previousProgressFrames = null;
         _previousProgressTotalFrames = null;
+        _remainingTimeEstimatedAt = null;
+        _remainingSecondsAtEstimate = null;
         _recentFrameRates.Clear();
+        if (!IsDetecting)
+        {
+            _remainingTimeTimer.Stop();
+        }
 
         ProgressPercentage = 0;
         ProgressPercentText = "0%";
