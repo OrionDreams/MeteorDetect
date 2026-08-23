@@ -74,22 +74,28 @@ public sealed class AvaloniaUserInteractionService : IUserInteractionService
             Width = 520,
             Height = 260,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new DockPanel
+            Content = new Grid
             {
                 Margin = new Thickness(18),
+                RowDefinitions = new RowDefinitions("*,Auto"),
+                RowSpacing = 14,
                 Children =
                 {
-                    new TextBlock
+                    new ScrollViewer
                     {
-                        Text = message,
-                        TextWrapping = Avalonia.Media.TextWrapping.Wrap
+                        VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                        Content = new TextBlock
+                        {
+                            Text = message,
+                            TextWrapping = Avalonia.Media.TextWrapping.Wrap
+                        }
                     },
                     okButton
                 }
             }
         };
 
-        DockPanel.SetDock(okButton, Dock.Bottom);
+        Grid.SetRow(okButton, 1);
         okButton.Click += (_, _) => dialog.Close();
         await dialog.ShowDialog(owner);
     }
