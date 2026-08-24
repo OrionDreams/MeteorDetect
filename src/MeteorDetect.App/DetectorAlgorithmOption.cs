@@ -24,7 +24,7 @@ public static class DetectorAlgorithms
         new(
             FastDetectExperimental,
             "FastDetect (Experimental)",
-            "Exact small-sample median/MAD experiment with fewer temporal models.")
+            "Exact small-sample median/MAD experiment with moderately fewer temporal models.")
     ];
 
     public static DetectorAlgorithmOption Resolve(string? id)

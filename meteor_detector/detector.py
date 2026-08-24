@@ -70,7 +70,7 @@ DETECTOR_ALGORITHMS: dict[str, dict[str, Any]] = {
     "fastdetect_experimental": {
         "fast_prefilter": False,
         "temporal_model_impl": "partition",
-        "temporal_model_stride": 16,
+        "temporal_model_stride": 8,
     },
 }
 

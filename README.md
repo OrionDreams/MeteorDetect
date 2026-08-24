@@ -59,7 +59,7 @@ The detector has named algorithm presets:
 ```text
 temporal_median_mad             accurate baseline, slowest
 temporal_median_mad_prefilter   baseline plus experimental Fast Prefilter
-fastdetect_experimental         exact small-sample median/MAD experiment with fewer temporal models
+fastdetect_experimental         exact small-sample median/MAD experiment with moderately fewer temporal models
 ```
 
 Select one from the desktop Settings view, or from the CLI:
