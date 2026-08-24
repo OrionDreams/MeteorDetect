@@ -104,6 +104,9 @@ public partial class MainWindowViewModel : ObservableObject
     private string _remainingTimeText = "Remaining: --";
 
     [ObservableProperty]
+    private string _pauseCheckpointText = "";
+
+    [ObservableProperty]
     private string _resolveScriptDirectory = "";
 
     [ObservableProperty]
@@ -575,6 +578,7 @@ public partial class MainWindowViewModel : ObservableObject
     partial void OnIsPauseRequestedChanged(bool value)
     {
         IsPauseButtonPending = value;
+        RefreshPauseCheckpointText();
         PauseDetectionCommand.NotifyCanExecuteChanged();
     }
 
@@ -636,6 +640,7 @@ public partial class MainWindowViewModel : ObservableObject
         ProgressPercentText = $"{Math.Round(progress)}%";
         ProcessedFramesText = $"Processed frames: {processedFrames:N0} / {totalFrames:N0}";
         CandidateFramesText = $"Candidate frames: {candidateFrames:N0}";
+        RefreshPauseCheckpointText(processedFrames);
         FramesPerSecondText = averagedFramesPerSecond is null
             ? "Speed: -- fps"
             : $"Speed: {Math.Round(averagedFramesPerSecond.Value):N0} fps";
@@ -711,6 +716,28 @@ public partial class MainWindowViewModel : ObservableObject
         CandidateFramesText = "Candidate frames: 0";
         FramesPerSecondText = "Speed: -- fps";
         RemainingTimeText = "Remaining: --";
+        PauseCheckpointText = "";
+    }
+
+    private void RefreshPauseCheckpointText(long? processedFrames = null)
+    {
+        if (!IsPauseRequested)
+        {
+            PauseCheckpointText = "";
+            return;
+        }
+
+        var currentFrame = processedFrames ?? _previousProgressFrames;
+        if (currentFrame is null)
+        {
+            PauseCheckpointText = "Pausing detection at the next checkpoint (-- frames left)";
+            return;
+        }
+
+        const long checkpointIntervalFrames = 1000;
+        var nextCheckpoint = ((currentFrame.Value / checkpointIntervalFrames) + 1) * checkpointIntervalFrames;
+        var framesLeft = Math.Max(0, nextCheckpoint - currentFrame.Value);
+        PauseCheckpointText = $"Pausing detection at the next checkpoint ({framesLeft:N0} frames left)";
     }
 
     private void RefreshDetectButtonText()

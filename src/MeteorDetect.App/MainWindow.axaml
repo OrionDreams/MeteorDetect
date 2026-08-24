@@ -251,7 +251,7 @@
                     </Grid>
 
                     <Border Grid.Row="3" Classes="panel" Padding="14">
-                        <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                             <TextBlock Text="{Binding RemainingTimeText}" Classes="secondary" HorizontalAlignment="Right"/>
                             <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                 <ProgressBar Value="{Binding ProgressPercentage}" Minimum="0" Maximum="100" Height="10" VerticalAlignment="Center"/>
@@ -263,7 +263,13 @@
                                          Height="3"
                                          IsIndeterminate="True"
                                          IsVisible="{Binding IsDetecting}"/>
-                            <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
+                            <TextBlock Grid.Row="3"
+                                       Text="{Binding PauseCheckpointText}"
+                                       Foreground="{StaticResource AccentBrush}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       IsVisible="{Binding IsPauseRequested}"/>
+                            <Grid Grid.Row="4" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="16">
                                 <TextBlock Text="{Binding ProcessedFramesText}" Classes="muted"/>
                                 <TextBlock Grid.Column="1" Text="{Binding FramesPerSecondText}" Classes="muted"/>
                                 <TextBlock Grid.Column="2" Text="{Binding CandidateFramesText}" Classes="muted"/>
