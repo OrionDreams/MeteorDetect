@@ -14,7 +14,7 @@ public sealed class AppSettings
 
     public bool IgnoreCameraBumps { get; set; }
 
-    public string DetectorAlgorithm { get; set; } = DetectorAlgorithms.Accurate;
+    public string DetectorAlgorithm { get; set; } = DetectorAlgorithms.OptimizedTemporalMedian;
 
     public bool FastPrefilter { get; set; }
 }

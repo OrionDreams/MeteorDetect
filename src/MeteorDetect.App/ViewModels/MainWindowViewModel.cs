@@ -298,7 +298,8 @@ public partial class MainWindowViewModel : ObservableObject
         _settings = await SettingsStore.LoadAsync();
         _settings.ResolveScriptDirectory ??= RuntimePaths.FirstExistingResolveUtilityDirectory();
         ResolveScriptDirectory = _settings.ResolveScriptDirectory ?? "";
-        if (_settings.FastPrefilter && string.Equals(_settings.DetectorAlgorithm, DetectorAlgorithms.Accurate, StringComparison.Ordinal))
+        if (_settings.FastPrefilter
+            && !string.Equals(_settings.DetectorAlgorithm, DetectorAlgorithms.AccurateWithPrefilter, StringComparison.Ordinal))
         {
             _settings.DetectorAlgorithm = DetectorAlgorithms.AccurateWithPrefilter;
         }

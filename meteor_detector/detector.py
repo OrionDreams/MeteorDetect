@@ -16,7 +16,7 @@ import numpy as np
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "detector_algorithm": "temporal_median_mad",
+    "detector_algorithm": "optimized_temporal_median",
     "scan_width": 960,
     "temporal_window_frames": 25,
     "temporal_sample_stride": 2,
@@ -57,6 +57,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 DETECTOR_ALGORITHMS: dict[str, dict[str, Any]] = {
+    "optimized_temporal_median": {
+        "fast_prefilter": False,
+        "temporal_model_impl": "partition",
+        "temporal_model_stride": 8,
+    },
     "temporal_median_mad": {
         "fast_prefilter": False,
         "temporal_model_impl": "median",
@@ -67,11 +72,10 @@ DETECTOR_ALGORITHMS: dict[str, dict[str, Any]] = {
         "temporal_model_impl": "median",
         "temporal_model_stride": 8,
     },
-    "fastdetect_experimental": {
-        "fast_prefilter": False,
-        "temporal_model_impl": "partition",
-        "temporal_model_stride": 8,
-    },
+}
+
+DETECTOR_ALGORITHM_ALIASES: dict[str, str] = {
+    "fastdetect_experimental": "optimized_temporal_median",
 }
 
 
@@ -108,6 +112,18 @@ class Event:
     max_area_scan_px: int
     candidate_count: int
     candidates: list[dict[str, Any]] | None = None
+
+
+class TemporalModelScratch:
+    def __init__(self, sample_count: int, height: int, width: int) -> None:
+        shape = (sample_count, height, width)
+        frame_shape = (height, width)
+        self.stack_u16 = np.empty(shape, dtype=np.uint16)
+        self.stack_f32 = np.empty(shape, dtype=np.float32)
+        self.background = np.empty(frame_shape, dtype=np.float32)
+        self.sigma = np.empty(frame_shape, dtype=np.float32)
+        self.sigma_blur = np.empty(frame_shape, dtype=np.float32)
+        self.signal_threshold = np.empty(frame_shape, dtype=np.float32)
 
 
 class Profiler:
@@ -233,7 +249,8 @@ def ffmpeg_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
 
 
 def apply_detector_algorithm(cfg: dict[str, Any], algorithm: str | None = None) -> None:
-    selected = algorithm or str(cfg.get("detector_algorithm") or "temporal_median_mad")
+    selected = algorithm or str(cfg.get("detector_algorithm") or "optimized_temporal_median")
+    selected = DETECTOR_ALGORITHM_ALIASES.get(selected, selected)
     if selected not in DETECTOR_ALGORITHMS:
         choices = ", ".join(sorted(DETECTOR_ALGORITHMS))
         raise ValueError(f"Unknown detector algorithm '{selected}'. Choices: {choices}")
@@ -253,6 +270,20 @@ def _median_axis0_exact(stack: np.ndarray) -> np.ndarray:
     return (lower + upper) * 0.5
 
 
+def _median_axis0_exact_inplace(stack: np.ndarray, out: np.ndarray) -> np.ndarray:
+    count = stack.shape[0]
+    mid = count // 2
+    stack.partition(mid, axis=0)
+    if count % 2:
+        np.copyto(out, stack[mid], casting="unsafe")
+        return out
+
+    np.max(stack[:mid], axis=0, out=out)
+    out += stack[mid]
+    out *= 0.5
+    return out
+
+
 def _robust_temporal_model_median(sampled_frames: list[np.ndarray], noise_floor: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     stack = np.stack(sampled_frames, axis=0).astype(np.float32, copy=False)
     background = np.median(stack, axis=0)
@@ -265,22 +296,36 @@ def _robust_temporal_model_median(sampled_frames: list[np.ndarray], noise_floor:
     return background.astype(np.float32, copy=False), sigma, sigma_blur, median_sigma
 
 
-def _robust_temporal_model_partition(sampled_frames: list[np.ndarray], noise_floor: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-    stack = np.stack(sampled_frames, axis=0)
-    background = _median_axis0_exact(stack)
-    diff = stack.astype(np.float32, copy=False)
-    np.subtract(diff, background[None, ...], out=diff)
-    np.abs(diff, out=diff)
-    mad = _median_axis0_exact(diff)
-    sigma = np.maximum(float(noise_floor), 1.4826 * mad).astype(np.float32, copy=False)
-    sigma_blur = cv2.GaussianBlur(sigma, (3, 3), 0)
-    median_sigma = float(np.median(sigma[::8, ::8]))
-    return background, sigma, sigma_blur, median_sigma
+def _robust_temporal_model_partition(
+    sampled_frames: list[np.ndarray],
+    noise_floor: float,
+    scratch: TemporalModelScratch,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    for i, frame in enumerate(sampled_frames):
+        scratch.stack_u16[i, ...] = frame
+
+    background = _median_axis0_exact_inplace(scratch.stack_u16, scratch.background)
+    scratch.stack_f32[...] = scratch.stack_u16
+    np.subtract(scratch.stack_f32, background[None, ...], out=scratch.stack_f32)
+    np.abs(scratch.stack_f32, out=scratch.stack_f32)
+    mad = _median_axis0_exact_inplace(scratch.stack_f32, scratch.sigma)
+    np.multiply(mad, 1.4826, out=scratch.sigma)
+    np.maximum(scratch.sigma, float(noise_floor), out=scratch.sigma)
+    sigma_blur = cv2.GaussianBlur(scratch.sigma, (3, 3), 0, dst=scratch.sigma_blur)
+    median_sigma = float(np.median(scratch.sigma[::8, ::8]))
+    return background, scratch.sigma, sigma_blur, median_sigma
 
 
-def _robust_temporal_model(sampled_frames: list[np.ndarray], noise_floor: float, impl: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+def _robust_temporal_model(
+    sampled_frames: list[np.ndarray],
+    noise_floor: float,
+    impl: str,
+    scratch: TemporalModelScratch | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     if impl == "partition":
-        return _robust_temporal_model_partition(sampled_frames, noise_floor)
+        if scratch is None:
+            raise ValueError("partition temporal model requires scratch buffers")
+        return _robust_temporal_model_partition(sampled_frames, noise_floor, scratch)
     return _robust_temporal_model_median(sampled_frames, noise_floor)
 
 
@@ -642,10 +687,11 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
         sample_offsets.sort()
     if len(sample_offsets) < 7:
         raise ValueError("temporal_window_frames / temporal_sample_stride must yield at least 7 samples")
+    temporal_scratch = TemporalModelScratch(len(sample_offsets), sh, sw) if str(cfg.get("temporal_model_impl", "median")) == "partition" else None
 
     estimated = info.get("estimated_frames") or 0
     all_candidates: list[Candidate] = []
-    algorithm = str(cfg.get("detector_algorithm", "temporal_median_mad"))
+    algorithm = str(cfg.get("detector_algorithm", "optimized_temporal_median"))
     temporal_model_impl = str(cfg.get("temporal_model_impl", "median"))
     use_prefilter = bool(cfg.get("fast_prefilter", False))
     ignore_camera_bumps = bool(cfg.get("ignore_camera_bumps", False))
@@ -681,12 +727,18 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
         t_model = time.perf_counter()
         sampled = [get_frame(anchor + off) for off in sample_offsets]
         background, _sigma, sigma_blur, median_sigma = _robust_temporal_model(
-            sampled, float(cfg["local_noise_floor"]), temporal_model_impl
+            sampled, float(cfg["local_noise_floor"]), temporal_model_impl, temporal_scratch
         )
-        signal_threshold = np.maximum(
-            float(cfg["minimum_threshold"]),
-            float(cfg["local_sigma_threshold"]) * np.maximum(sigma_blur, 1.0),
-        ).astype(np.float32, copy=False)
+        if temporal_scratch is not None:
+            signal_threshold = temporal_scratch.signal_threshold
+            np.maximum(sigma_blur, 1.0, out=signal_threshold)
+            np.multiply(signal_threshold, float(cfg["local_sigma_threshold"]), out=signal_threshold)
+            np.maximum(signal_threshold, float(cfg["minimum_threshold"]), out=signal_threshold)
+        else:
+            signal_threshold = np.maximum(
+                float(cfg["minimum_threshold"]),
+                float(cfg["local_sigma_threshold"]) * np.maximum(sigma_blur, 1.0),
+            ).astype(np.float32, copy=False)
         profiler.add_time("temporal_model", time.perf_counter() - t_model)
         profiler.inc("temporal_models")
 
@@ -793,4 +845,8 @@ def load_config(path: Path | None) -> dict[str, Any]:
     cfg.update(user)
     if "detector_algorithm" not in user and bool(user.get("fast_prefilter", False)):
         cfg["detector_algorithm"] = "temporal_median_mad_prefilter"
+    cfg["detector_algorithm"] = DETECTOR_ALGORITHM_ALIASES.get(
+        str(cfg.get("detector_algorithm", "optimized_temporal_median")),
+        str(cfg.get("detector_algorithm", "optimized_temporal_median")),
+    )
     return cfg

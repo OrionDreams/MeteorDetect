@@ -85,10 +85,11 @@ Do not implement all of these at once. Measure first.
 3. Investigate rolling statistics that exploit overlap between neighboring model windows.
 4. Consider bounded 10-bit histogram/order-statistic methods if profiling shows median/MAD remains dominant.
 
-`fastdetect_experimental` currently keeps `temporal_model_stride=8` and changes only the
-robust model implementation to exact partition-based median/MAD. On C2746, stride 16
-missed the real event peaking at frame 2485. Stride 12 recovered that event but lost other
-baseline events and introduced a new event, so larger strides are not safe enough yet.
+`optimized_temporal_median` currently keeps `temporal_model_stride=8` and changes only the
+robust model implementation to exact partition-based median/MAD with reusable scratch
+buffers. On C2746, earlier FastDetect stride experiments missed or changed real events:
+stride 16 missed the event peaking at frame 2485, while stride 12 recovered that event but
+lost other baseline events and introduced a new event. Larger strides are not safe enough yet.
 
 ### Parallelism
 

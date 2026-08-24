@@ -57,18 +57,19 @@ The profile is included under each file's `profile` object in the detector JSON 
 The detector has named algorithm presets:
 
 ```text
-temporal_median_mad             accurate baseline, slowest
-temporal_median_mad_prefilter   baseline plus experimental Fast Prefilter
-fastdetect_experimental         exact small-sample median/MAD experiment with moderately fewer temporal models
+optimized_temporal_median       current default, optimized exact temporal median model
+temporal_median_mad             original accurate baseline, slowest
+temporal_median_mad_prefilter   original baseline plus experimental Fast Prefilter
 ```
 
 Select one from the desktop Settings view, or from the CLI:
 
 ```bash
-bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile --detector-algorithm fastdetect_experimental
+bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile --detector-algorithm optimized_temporal_median
 ```
 
 The old `--fast-prefilter` flag remains as a shortcut for `--detector-algorithm temporal_median_mad_prefilter`.
+The previous `fastdetect_experimental` id remains accepted as a compatibility alias for `optimized_temporal_median`.
 
 ### 3. Experimental CPU-only fast prefilter
 
@@ -149,10 +150,10 @@ Profile the experimental prefilter:
 bin/detect-meteors.sh C2752.MP4 -o fast.json --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
 ```
 
-Profile FastDetect:
+Profile the optimized detector:
 
 ```bash
-bin/detect-meteors.sh C2752.MP4 -o fastdetect.json --no-diagnostics --profile --detector-algorithm fastdetect_experimental
+bin/detect-meteors.sh C2752.MP4 -o optimized.json --no-diagnostics --profile --detector-algorithm optimized_temporal_median
 ```
 
 Use a custom config:
