@@ -9,7 +9,7 @@
         x:Name="Root"
         x:DataType="vm:MainWindowViewModel"
         Title="MeteorDetect"
-        Width="1100"
+        Width="1280"
         Height="720"
         MinWidth="900"
         MinHeight="620">
@@ -54,6 +54,9 @@
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="7"/>
             <Setter Property="Padding" Value="14"/>
+        </Style>
+        <Style Selector="Border.tile.processed">
+            <Setter Property="BorderBrush" Value="{StaticResource MarkerBrush}"/>
         </Style>
         <Style Selector="Button">
             <Setter Property="MinHeight" Value="36"/>
@@ -130,7 +133,7 @@
         </Border>
 
         <Border Padding="22,16" Background="#121821">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="12">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
                 <Border Width="38" Height="38" CornerRadius="8" Background="{StaticResource AccentBrush}" VerticalAlignment="Center">
                     <TextBlock Text="M" Foreground="#111217" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
@@ -139,9 +142,11 @@
                     <TextBlock Classes="secondary"
                                Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
                 </StackPanel>
-                <Button Grid.Column="2" Content="Open files" Command="{Binding AddFilesCommand}" MinWidth="116"/>
-                <Button Grid.Column="3" Content="{Binding PauseButtonText}" Command="{Binding PauseDetectionCommand}" MinWidth="92"/>
-                <Button Grid.Column="4" Classes="primary" Content="{Binding DetectButtonText}" Command="{Binding DetectCommand}" MinWidth="132"/>
+                <Button Grid.Column="2" Content="Open Directory" Command="{Binding OpenDirectoryCommand}" MinWidth="132"/>
+                <Button Grid.Column="3" Content="Open File" Command="{Binding AddFilesCommand}" MinWidth="112"/>
+                <Button Grid.Column="4" Content="Refresh Directory" Command="{Binding RefreshDirectoryCommand}" MinWidth="142"/>
+                <Button Grid.Column="5" Content="{Binding PauseButtonText}" Command="{Binding PauseDetectionCommand}" MinWidth="92"/>
+                <Button Grid.Column="6" Classes="primary" Content="{Binding DetectButtonText}" Command="{Binding DetectCommand}" MinWidth="132"/>
             </Grid>
         </Border>
 
@@ -164,7 +169,7 @@
                         <ListBox ItemsSource="{Binding Clips}" SelectedItem="{Binding SelectedClip, Mode=TwoWay}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ClipItemViewModel">
-                                    <Border Classes="tile">
+                                    <Border Classes="tile" Classes.processed="{Binding HasProcessedDetection}">
                                         <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
                                             <Grid ColumnDefinitions="2.1*,*,1.2*,Auto" ColumnSpacing="18">
                                                 <StackPanel>
@@ -175,7 +180,7 @@
                                                 <Border Grid.Column="2" Background="#202838" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" HorizontalAlignment="Left">
                                                     <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
                                                 </Border>
-                                                <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
+                                                <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" IsVisible="{Binding IsEventBadgeVisible}">
                                                     <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
                                                 </Border>
                                             </Grid>

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -13,6 +14,13 @@ public partial class MainWindowViewModel : ObservableObject
     private static readonly Regex DetectorProgressPattern = new(
         @"^(?:\[(?<time>\d{2}:\d{2}:\d{2})\])?\[(?<file>[^\]]+)\]\s+frame\s+(?<processed>\d+)\/(?<total>\d+),\s+candidates=(?<candidates>\d+)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly HashSet<string> SupportedVideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".mp4",
+        ".mov",
+        ".m4v"
+    };
 
     private readonly DetectorRuntime _runtime;
     private readonly DetectionService _detectionService;
@@ -37,6 +45,8 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DetectCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddFilesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenDirectoryCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RefreshDirectoryCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseDetectionCommand))]
     private bool _isDetecting;
 
@@ -94,6 +104,13 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private string _runtimeStatus;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshDirectoryCommand))]
+    private string _loadedDirectoryPath = "";
+
+    [ObservableProperty]
+    private string _directorySummary = "";
+
     public MainWindowViewModel(
         DetectorRuntime runtime,
         DetectionService detectionService,
@@ -120,10 +137,37 @@ public partial class MainWindowViewModel : ObservableObject
 
     public IReadOnlyList<DetectorDecoderOption> DetectorDecoderOptions => DetectorDecoders.All;
 
+    public bool HasLoadedDirectory => !string.IsNullOrWhiteSpace(LoadedDirectoryPath);
+
+    [RelayCommand(CanExecute = nameof(CanOpenDirectory))]
+    private async Task OpenDirectoryAsync()
+    {
+        var path = await _userInteraction.ChooseFolderAsync("Open video directory");
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        LoadedDirectoryPath = path;
+        await LoadDirectoryAsync(path);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRefreshDirectory))]
+    private async Task RefreshDirectoryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(LoadedDirectoryPath))
+        {
+            return;
+        }
+
+        await LoadDirectoryAsync(LoadedDirectoryPath);
+    }
+
     [RelayCommand(CanExecute = nameof(CanAddFiles))]
     private async Task AddFilesAsync()
     {
         var paths = await _userInteraction.OpenVideoFilesAsync();
+        var associations = LoadDetectionAssociations(paths);
         foreach (var path in paths)
         {
             if (Clips.Any(clip => string.Equals(clip.Path, path, StringComparison.OrdinalIgnoreCase)))
@@ -132,6 +176,7 @@ public partial class MainWindowViewModel : ObservableObject
             }
 
             var clip = new ClipItemViewModel(path);
+            ApplyProcessedDetection(clip, associations);
             Clips.Add(clip);
             _ = LoadDurationAsync(clip);
         }
@@ -154,7 +199,7 @@ public partial class MainWindowViewModel : ObservableObject
             foreach (var clip in Clips)
             {
                 clip.Status = "Queued";
-                clip.EventSummary = "";
+                clip.ClearProcessedDetection();
             }
 
             var result = await _detectionService.DetectAsync(
@@ -191,7 +236,8 @@ public partial class MainWindowViewModel : ObservableObject
                 else
                 {
                     clip.Status = "Done";
-                    clip.EventSummary = $"{group.Sum(item => item.EventCount)} event(s)";
+                    var successfulResult = group.Last(item => item.Succeeded);
+                    clip.SetProcessedDetection(successfulResult.JsonPath, group.Sum(item => item.EventCount));
                 }
             }
 
@@ -303,6 +349,8 @@ public partial class MainWindowViewModel : ObservableObject
         Clips.Clear();
         OutputPath = "";
         SelectedClip = null;
+        LoadedDirectoryPath = "";
+        DirectorySummary = "";
         ResetProgress();
         AppendLog("Cleared clips.");
         RefreshDetectButtonText();
@@ -641,6 +689,197 @@ public partial class MainWindowViewModel : ObservableObject
             : "Detect";
     }
 
+    partial void OnLoadedDirectoryPathChanged(string value)
+    {
+        OnPropertyChanged(nameof(HasLoadedDirectory));
+    }
+
+    private async Task LoadDirectoryAsync(string directoryPath)
+    {
+        if (!Directory.Exists(directoryPath))
+        {
+            await _userInteraction.ShowNoticeAsync("Directory not found", directoryPath);
+            return;
+        }
+
+        var videoPaths = Directory.EnumerateFiles(directoryPath)
+            .Where(path => SupportedVideoExtensions.Contains(Path.GetExtension(path)))
+            .OrderBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var associations = LoadDetectionAssociations(videoPaths);
+
+        Clips.Clear();
+        SelectedClip = null;
+        foreach (var path in videoPaths)
+        {
+            var clip = new ClipItemViewModel(path);
+            ApplyProcessedDetection(clip, associations);
+            Clips.Add(clip);
+            _ = LoadDurationAsync(clip);
+        }
+
+        var processedCount = Clips.Count(clip => clip.HasProcessedDetection);
+        DirectorySummary = $"Directory: {directoryPath} ({videoPaths.Count} video file(s), {processedCount} processed)";
+        OutputPath = DirectorySummary;
+        AppendLog($"Loaded directory {directoryPath}: {videoPaths.Count} video file(s), {processedCount} processed.");
+        RefreshDetectButtonText();
+        DetectCommand.NotifyCanExecuteChanged();
+        RemoveSelectedCommand.NotifyCanExecuteChanged();
+    }
+
+    private static IReadOnlyDictionary<string, DetectionAssociation> LoadDetectionAssociations(IReadOnlyList<string> videoPaths)
+    {
+        var videosByFullPath = videoPaths.ToDictionary(Path.GetFullPath, StringComparer.OrdinalIgnoreCase);
+        var videosByStem = videoPaths
+            .GroupBy(path => Path.GetFileNameWithoutExtension(path), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+        var associations = new Dictionary<string, DetectionAssociation>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var directory in videoPaths
+            .Select(Path.GetDirectoryName)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            foreach (var jsonPath in Directory.EnumerateFiles(directory!, "*.json")
+                .Where(IsCompletedMeteorJsonName))
+            {
+                AssociateJsonFile(jsonPath, videosByFullPath, videosByStem, associations);
+            }
+        }
+
+        return associations;
+    }
+
+    private static bool IsCompletedMeteorJsonName(string path)
+    {
+        var fileName = Path.GetFileName(path);
+        var stem = Path.GetFileNameWithoutExtension(path);
+        return fileName.Contains("_meteors_", StringComparison.OrdinalIgnoreCase)
+            && !stem.EndsWith("_meteors_partial", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AssociateJsonFile(
+        string jsonPath,
+        IReadOnlyDictionary<string, string> videosByFullPath,
+        IReadOnlyDictionary<string, List<string>> videosByStem,
+        Dictionary<string, DetectionAssociation> associations)
+    {
+        var jsonInfo = new FileInfo(jsonPath);
+        if (!jsonInfo.Exists)
+        {
+            return;
+        }
+
+        var associatedFromJson = false;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(jsonPath));
+            if (document.RootElement.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var fileElement in files.EnumerateArray())
+                {
+                    if (!TryGetJsonClipPath(fileElement, out var jsonClipPath)
+                        || !videosByFullPath.TryGetValue(Path.GetFullPath(jsonClipPath), out var videoPath))
+                    {
+                        continue;
+                    }
+
+                    var eventCount = fileElement.TryGetProperty("events", out var events) && events.ValueKind == JsonValueKind.Array
+                        ? events.GetArrayLength()
+                        : 0;
+                    SetNewestAssociation(videoPath, new DetectionAssociation(jsonPath, eventCount, jsonInfo.LastWriteTimeUtc), associations);
+                    associatedFromJson = true;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            associatedFromJson = false;
+        }
+
+        if (associatedFromJson)
+        {
+            return;
+        }
+
+        var stem = GetAssociatedVideoStemFromJsonName(jsonPath);
+        if (string.IsNullOrWhiteSpace(stem)
+            || !videosByStem.TryGetValue(stem, out var matchingVideos)
+            || matchingVideos.Count != 1)
+        {
+            return;
+        }
+
+        SetNewestAssociation(
+            matchingVideos[0],
+            new DetectionAssociation(jsonPath, CountEventsInSingleFileJson(jsonPath), jsonInfo.LastWriteTimeUtc),
+            associations);
+    }
+
+    private static bool TryGetJsonClipPath(JsonElement fileElement, out string path)
+    {
+        if (fileElement.TryGetProperty("path", out var pathElement)
+            && pathElement.ValueKind == JsonValueKind.String
+            && !string.IsNullOrWhiteSpace(pathElement.GetString()))
+        {
+            path = pathElement.GetString()!;
+            return true;
+        }
+
+        path = "";
+        return false;
+    }
+
+    private static void SetNewestAssociation(
+        string videoPath,
+        DetectionAssociation association,
+        Dictionary<string, DetectionAssociation> associations)
+    {
+        if (!associations.TryGetValue(videoPath, out var existing)
+            || association.LastWriteTimeUtc >= existing.LastWriteTimeUtc)
+        {
+            associations[videoPath] = association;
+        }
+    }
+
+    private static int CountEventsInSingleFileJson(string jsonPath)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(jsonPath));
+            if (!document.RootElement.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Array)
+            {
+                return 0;
+            }
+
+            return files.EnumerateArray()
+                .Sum(file => file.TryGetProperty("events", out var events) && events.ValueKind == JsonValueKind.Array
+                    ? events.GetArrayLength()
+                    : 0);
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
+    }
+
+    private static string GetAssociatedVideoStemFromJsonName(string jsonPath)
+    {
+        var stem = Path.GetFileNameWithoutExtension(jsonPath);
+        var markerIndex = stem.IndexOf("_meteors_", StringComparison.OrdinalIgnoreCase);
+        return markerIndex > 0 ? stem[..markerIndex] : "";
+    }
+
+    private static void ApplyProcessedDetection(
+        ClipItemViewModel clip,
+        IReadOnlyDictionary<string, DetectionAssociation> associations)
+    {
+        if (associations.TryGetValue(Path.GetFullPath(clip.Path), out var association))
+        {
+            clip.SetProcessedDetection(association.JsonPath, association.EventCount);
+        }
+    }
+
     private static string FormatDuration(double seconds)
     {
         if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0)
@@ -680,6 +919,10 @@ public partial class MainWindowViewModel : ObservableObject
 
     private bool CanAddFiles() => !IsDetecting;
 
+    private bool CanOpenDirectory() => !IsDetecting;
+
+    private bool CanRefreshDirectory() => !IsDetecting && HasLoadedDirectory;
+
     private bool CanDetect() => !IsDetecting && Clips.Count > 0;
 
     private bool CanPauseDetection() => IsDetecting && !IsPauseRequested;
@@ -687,4 +930,6 @@ public partial class MainWindowViewModel : ObservableObject
     private bool CanRemoveSelected() => SelectedClip is not null;
 
     private bool CanRemoveSelectedHistoryEntry() => SelectedHistoryEntry is not null;
+
+    private sealed record DetectionAssociation(string JsonPath, int EventCount, DateTime LastWriteTimeUtc);
 }

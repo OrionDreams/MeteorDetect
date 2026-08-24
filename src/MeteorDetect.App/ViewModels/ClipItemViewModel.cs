@@ -15,6 +15,15 @@ public partial class ClipItemViewModel : ObservableObject
     private string _eventSummary = "";
 
     [ObservableProperty]
+    private bool _isEventBadgeVisible;
+
+    [ObservableProperty]
+    private bool _hasProcessedDetection;
+
+    [ObservableProperty]
+    private string _processedDetectionPath = "";
+
+    [ObservableProperty]
     private bool _hasPartialDetection;
 
     [ObservableProperty]
@@ -32,6 +41,22 @@ public partial class ClipItemViewModel : ObservableObject
     public string Path { get; }
 
     public string PartialDetectionPath => DetectionService.GetPartialOutputPath(Path);
+
+    public void SetProcessedDetection(string jsonPath, int eventCount)
+    {
+        HasProcessedDetection = true;
+        ProcessedDetectionPath = jsonPath;
+        EventSummary = $"{eventCount} event(s)";
+        IsEventBadgeVisible = true;
+    }
+
+    public void ClearProcessedDetection()
+    {
+        HasProcessedDetection = false;
+        ProcessedDetectionPath = "";
+        EventSummary = "";
+        IsEventBadgeVisible = false;
+    }
 
     public void RefreshPartialDetection()
     {
