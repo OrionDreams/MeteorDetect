@@ -84,7 +84,7 @@
             <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
         </Style>
         <Style Selector="ProgressBar">
-            <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource MarkerBrush}"/>
             <Setter Property="Background" Value="#202838"/>
             <Setter Property="CornerRadius" Value="999"/>
         </Style>
@@ -151,7 +151,10 @@
                             <TextBlock Text="Source Clips" FontSize="22" FontWeight="SemiBold"/>
                             <TextBlock Classes="secondary" Text="Batch detection runs through the Python detector and writes JSON for Resolve import."/>
                         </StackPanel>
-                        <CheckBox Grid.Column="1" Content="Fast prefilter" IsChecked="{Binding FastPrefilter}" VerticalAlignment="Center"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                            <CheckBox Content="Ignore camera bumps" IsChecked="{Binding IgnoreCameraBumps}"/>
+                            <CheckBox Content="Fast prefilter" IsChecked="{Binding FastPrefilter}"/>
+                        </StackPanel>
                     </Grid>
 
                     <Border Grid.Row="1" Classes="panel" Padding="10">

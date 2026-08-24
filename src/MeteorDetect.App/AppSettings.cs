@@ -11,6 +11,8 @@ public sealed class AppSettings
     public string? ResolveScriptDirectory { get; set; }
 
     public bool WriteCombinedJson { get; set; }
+
+    public bool IgnoreCameraBumps { get; set; }
 }
 
 public static class SettingsStore

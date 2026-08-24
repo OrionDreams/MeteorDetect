@@ -42,6 +42,7 @@ public sealed class DetectionService
     public async Task<DetectionBatchResult> DetectAsync(
         IReadOnlyList<string> clipPaths,
         bool fastPrefilter,
+        bool ignoreCameraBumps,
         bool writeCombinedJson,
         Action<string, string>? updateClipStatus,
         Action<string>? log,
@@ -83,6 +84,11 @@ public sealed class DetectionService
             if (fastPrefilter)
             {
                 args.Add("--fast-prefilter");
+            }
+
+            if (ignoreCameraBumps)
+            {
+                args.Add("--ignore-camera-bumps");
             }
 
             log?.Invoke($"Scanning {clipPath}");

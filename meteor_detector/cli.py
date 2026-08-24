@@ -75,10 +75,16 @@ def main() -> int:
                     help="Enable experimental cheap temporal streak prefilter before robust analysis")
     ap.add_argument("--no-fast-prefilter", action="store_true",
                     help="Disable prefilter even if enabled in the config file")
+    ap.add_argument("--ignore-camera-bumps", action="store_true",
+                    help="Ignore frames with an implausibly high number of meteor-like candidates")
+    ap.add_argument("--no-ignore-camera-bumps", action="store_true",
+                    help="Disable camera-bump candidate burst filtering even if enabled in the config file")
     args = ap.parse_args()
 
     if args.fast_prefilter and args.no_fast_prefilter:
         ap.error("--fast-prefilter and --no-fast-prefilter are mutually exclusive")
+    if args.ignore_camera_bumps and args.no_ignore_camera_bumps:
+        ap.error("--ignore-camera-bumps and --no-ignore-camera-bumps are mutually exclusive")
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         ap.error("ffmpeg and ffprobe must be installed and available on PATH")
 
@@ -91,6 +97,10 @@ def main() -> int:
         cfg["fast_prefilter"] = True
     if args.no_fast_prefilter:
         cfg["fast_prefilter"] = False
+    if args.ignore_camera_bumps:
+        cfg["ignore_camera_bumps"] = True
+    if args.no_ignore_camera_bumps:
+        cfg["ignore_camera_bumps"] = False
 
     inp = args.input.expanduser().resolve()
     if not inp.exists():
@@ -105,6 +115,8 @@ def main() -> int:
     print(f"Meteor Detector v{__version__}: scanning {len(files)} file(s)", file=sys.stderr)
     if cfg.get("fast_prefilter", False):
         print("Fast prefilter: ENABLED (experimental; validate recall on known meteors)", file=sys.stderr)
+    if cfg.get("ignore_camera_bumps", False):
+        print("Ignore camera bumps: ENABLED", file=sys.stderr)
 
     results = []
     failures = []

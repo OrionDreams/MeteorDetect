@@ -43,6 +43,9 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _fastPrefilter;
 
     [ObservableProperty]
+    private bool _ignoreCameraBumps;
+
+    [ObservableProperty]
     private bool _writeCombinedJson;
 
     [ObservableProperty]
@@ -138,6 +141,7 @@ public partial class MainWindowViewModel : ObservableObject
             var result = await _detectionService.DetectAsync(
                 Clips.Select(clip => clip.Path).ToList(),
                 FastPrefilter,
+                IgnoreCameraBumps,
                 WriteCombinedJson,
                 UpdateClipStatus,
                 AppendLogThreadSafe);
@@ -293,6 +297,7 @@ public partial class MainWindowViewModel : ObservableObject
         _settings.ResolveScriptDirectory ??= RuntimePaths.FirstExistingResolveUtilityDirectory();
         ResolveScriptDirectory = _settings.ResolveScriptDirectory ?? "";
         WriteCombinedJson = _settings.WriteCombinedJson;
+        IgnoreCameraBumps = _settings.IgnoreCameraBumps;
         await LoadHistoryAsync();
         await SettingsStore.SaveAsync(_settings);
         RefreshResolvePluginStatus();
@@ -403,6 +408,12 @@ public partial class MainWindowViewModel : ObservableObject
     partial void OnWriteCombinedJsonChanged(bool value)
     {
         _settings.WriteCombinedJson = value;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnIgnoreCameraBumpsChanged(bool value)
+    {
+        _settings.IgnoreCameraBumps = value;
         _ = SettingsStore.SaveAsync(_settings);
     }
 

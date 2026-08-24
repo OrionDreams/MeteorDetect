@@ -39,6 +39,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "diagnostic_jpegs": True,
     "diagnostic_quality": 92,
     "include_candidates_in_json": False,
+    "ignore_camera_bumps": False,
+    "camera_bump_max_candidates_per_frame": 15,
 
     # Optional CPU-only coarse pass. It is deliberately permissive: its only job is to
     # reject obviously quiet blocks before the expensive temporal median/MAD model.
@@ -546,6 +548,8 @@ def format_profile(profile: dict[str, Any], filename: str) -> str:
         f"  Empty deep masks:         {int(counts.get('empty_masks', 0))}",
         f"  Candidate frames:         {int(counts.get('candidate_frames', 0))}",
         f"  Candidates:               {int(counts.get('candidates', 0))}",
+        f"  Camera bump frames:       {int(counts.get('camera_bump_frames', 0))}",
+        f"  Camera bump candidates:   {int(counts.get('camera_bump_candidates', 0))}",
         f"  Prefilter blocks:         {int(counts.get('prefilter_blocks', 0))}",
         f"  Prefilter passed:         {int(counts.get('prefilter_passed_blocks', 0))}",
         f"  Prefilter rejected:       {int(counts.get('prefilter_rejected_blocks', 0))}",
@@ -581,6 +585,8 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
     estimated = info.get("estimated_frames") or 0
     all_candidates: list[Candidate] = []
     use_prefilter = bool(cfg.get("fast_prefilter", False))
+    ignore_camera_bumps = bool(cfg.get("ignore_camera_bumps", False))
+    camera_bump_max_candidates = int(cfg.get("camera_bump_max_candidates_per_frame", 15))
 
     buf: deque[tuple[int, np.ndarray]] = deque()
     next_anchor = half
@@ -621,6 +627,10 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
             center = get_frame(idx)
             cands, threshold = find_candidates(center, background, sigma_blur, idx, cfg, profiler)
             if cands:
+                if ignore_camera_bumps and len(cands) > camera_bump_max_candidates:
+                    profiler.inc("camera_bump_frames")
+                    profiler.inc("camera_bump_candidates", len(cands))
+                    continue
                 all_candidates.extend(cands)
                 if cfg.get("diagnostic_jpegs", True):
                     td = time.perf_counter()
@@ -686,6 +696,7 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
         "temporal_sample_stride": sample_stride,
         "temporal_model_stride": model_stride,
         "fast_prefilter": use_prefilter,
+        "ignore_camera_bumps": ignore_camera_bumps,
         "events": [
             {k: v for k, v in asdict(e).items() if v is not None}
             for e in events

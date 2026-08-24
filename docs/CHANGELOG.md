@@ -8,6 +8,7 @@
 - Added Resolve importer installation support from the app Settings tab.
 - Changed default detector output to one timestamped JSON file per source clip; combined output remains available with `--output-mode combined` or the UI setting.
 - Detector progress is now reported every 100 decoded frames and again at completion.
+- Added optional Ignore camera bumps detector mode to drop frames with more than 15 meteor-like candidates.
 - Added `resolve_importer/Import Meteors.lua`, a self-contained in-Resolve importer.
 - Lua importer reads detector JSON without external Lua dependencies.
 - Adds Pink markers to matching TimelineItem clips and skips detections trimmed out of an edit.

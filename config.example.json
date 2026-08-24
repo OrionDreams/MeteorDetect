@@ -17,6 +17,8 @@
   "diagnostic_jpegs": true,
   "diagnostic_quality": 92,
   "include_candidates_in_json": false,
+  "ignore_camera_bumps": false,
+  "camera_bump_max_candidates_per_frame": 15,
   "minimum_multiframe_event_frames": 2,
   "single_frame_min_streak_length": 16.0,
   "single_frame_min_elongation": 5.5,
