@@ -6,6 +6,7 @@
         xmlns:vm="clr-namespace:MeteorDetect.App.ViewModels"
         mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
         x:Class="MeteorDetect.App.MainWindow"
+        x:Name="Root"
         x:DataType="vm:MainWindowViewModel"
         Title="MeteorDetect"
         Width="1100"
@@ -129,7 +130,7 @@
         </Border>
 
         <Border Padding="22,16" Background="#121821">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="12">
                 <Border Width="38" Height="38" CornerRadius="8" Background="{StaticResource AccentBrush}" VerticalAlignment="Center">
                     <TextBlock Text="M" Foreground="#111217" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
@@ -139,7 +140,8 @@
                                Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
                 </StackPanel>
                 <Button Grid.Column="2" Content="Open files" Command="{Binding AddFilesCommand}" MinWidth="116"/>
-                <Button Grid.Column="3" Classes="primary" Content="Detect" Command="{Binding DetectCommand}" MinWidth="116"/>
+                <Button Grid.Column="3" Content="{Binding PauseButtonText}" Command="{Binding PauseDetectionCommand}" MinWidth="92"/>
+                <Button Grid.Column="4" Classes="primary" Content="{Binding DetectButtonText}" Command="{Binding DetectCommand}" MinWidth="132"/>
             </Grid>
         </Border>
 
@@ -163,18 +165,30 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ClipItemViewModel">
                                     <Border Classes="tile">
-                                        <Grid ColumnDefinitions="2.1*,*,1.2*,Auto" ColumnSpacing="18">
-                                            <StackPanel>
-                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                                                <TextBlock Text="{Binding Path}" Classes="muted"/>
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
-                                            <Border Grid.Column="2" Background="#202838" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                            </Border>
-                                            <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
-                                                <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                            </Border>
+                                        <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                                            <Grid ColumnDefinitions="2.1*,*,1.2*,Auto" ColumnSpacing="18">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="{Binding Path}" Classes="muted"/>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
+                                                <Border Grid.Column="2" Background="#202838" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                    <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                </Border>
+                                                <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
+                                                </Border>
+                                            </Grid>
+                                            <Grid Grid.Row="1"
+                                                  ColumnDefinitions="*,Auto"
+                                                  ColumnSpacing="10"
+                                                  IsVisible="{Binding HasPartialDetection}">
+                                                <TextBlock Text="{Binding PartialDetectionText}" Classes="secondary" VerticalAlignment="Center"/>
+                                                <Button Grid.Column="1"
+                                                        Content="Discard progress"
+                                                        Command="{Binding #Root.DataContext.DiscardPartialCommand}"
+                                                        CommandParameter="{Binding}"/>
+                                            </Grid>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

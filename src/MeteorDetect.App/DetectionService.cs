@@ -13,6 +13,7 @@ public sealed record ClipDetectionResult(
     string JsonPath,
     int EventCount,
     bool Succeeded,
+    bool Paused,
     string? Error,
     double? DurationSeconds,
     string? DetectorVersion,
@@ -24,7 +25,8 @@ public sealed record DetectionBatchResult(
     int EventCount,
     int FailureCount,
     IReadOnlyList<ClipDetectionResult> Clips,
-    bool IsCombinedOutput)
+    bool IsCombinedOutput,
+    bool IsPaused)
 {
     public string PrimaryOutputPath => OutputPaths.Count > 0 ? OutputPaths[0] : "";
 }
@@ -34,10 +36,23 @@ public sealed class DetectionService
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private readonly DetectorRuntime _runtime;
+    private string? _pauseRequestPath;
 
     public DetectionService(DetectorRuntime runtime)
     {
         _runtime = runtime;
+    }
+
+    public void RequestPause()
+    {
+        var pauseRequestPath = _pauseRequestPath;
+        if (string.IsNullOrWhiteSpace(pauseRequestPath))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(pauseRequestPath) ?? SettingsStore.SettingsDirectory);
+        File.WriteAllText(pauseRequestPath, DateTimeOffset.UtcNow.ToString("O"));
     }
 
     public async Task<DetectionBatchResult> DetectAsync(
@@ -63,6 +78,12 @@ public sealed class DetectionService
         var outputPaths = new List<string>();
         JsonElement? config = null;
         string? detectorVersion = null;
+        var paused = false;
+        _pauseRequestPath = Path.Combine(batchDirectory, "pause-request.txt");
+        if (File.Exists(_pauseRequestPath))
+        {
+            File.Delete(_pauseRequestPath);
+        }
 
         foreach (var clipPath in clipPaths)
         {
@@ -72,6 +93,7 @@ public sealed class DetectionService
             var clipOutput = writeCombinedJson
                 ? Path.Combine(batchDirectory, $"{SanitizeFileName(Path.GetFileNameWithoutExtension(clipPath))}_meteors.json")
                 : GetAvailableOutputPath(CreatePerClipOutputPath(clipPath, outputTimestamp));
+            var partialOutput = GetPartialOutputPath(clipPath);
             var args = new List<string>
             {
                 "-m",
@@ -90,6 +112,16 @@ public sealed class DetectionService
             {
                 args.Add("--ignore-camera-bumps");
             }
+            args.Add("--partial-output");
+            args.Add(partialOutput);
+            args.Add("--pause-request-file");
+            args.Add(_pauseRequestPath);
+            if (File.Exists(partialOutput))
+            {
+                args.Add("--resume-from");
+                args.Add(partialOutput);
+                updateClipStatus?.Invoke(clipPath, "Resuming...");
+            }
 
             log?.Invoke($"Scanning {clipPath}");
             var result = await ProcessRunner.RunAsync(
@@ -100,6 +132,24 @@ public sealed class DetectionService
                 line => log?.Invoke(line),
                 cancellationToken);
 
+            if (result.ExitCode == 0 && !File.Exists(clipOutput) && File.Exists(partialOutput))
+            {
+                updateClipStatus?.Invoke(clipPath, "Paused");
+                results.Add(new ClipDetectionResult(
+                    clipPath,
+                    partialOutput,
+                    0,
+                    false,
+                    true,
+                    null,
+                    null,
+                    null,
+                    algorithm.Id,
+                    algorithm.Id == DetectorAlgorithms.AccurateWithPrefilter));
+                paused = true;
+                break;
+            }
+
             if (result.ExitCode != 0)
             {
                 updateClipStatus?.Invoke(clipPath, "Failed");
@@ -108,6 +158,7 @@ public sealed class DetectionService
                     clipPath,
                     clipOutput,
                     0,
+                    false,
                     false,
                     error,
                     null,
@@ -145,6 +196,7 @@ public sealed class DetectionService
                     clipOutput,
                     eventCount,
                     true,
+                    false,
                     null,
                     durationSeconds,
                     detectorVersion,
@@ -164,7 +216,7 @@ public sealed class DetectionService
             updateClipStatus?.Invoke(clipPath, "Done");
         }
 
-        if (writeCombinedJson)
+        if (writeCombinedJson && !paused)
         {
             var combinedPath = GetAvailableOutputPath(Path.Combine(GetDefaultOutputDirectory(clipPaths[0]), $"meteors_{outputTimestamp}.json"));
             await WriteCombinedJsonAsync(
@@ -180,9 +232,11 @@ public sealed class DetectionService
                 .ToList();
         }
 
+        _pauseRequestPath = null;
+
         var totalEvents = results.Where(r => r.Succeeded).Sum(r => r.EventCount);
         var failures = failureElements.Count;
-        return new DetectionBatchResult(outputPaths, totalEvents, failures, results, writeCombinedJson);
+        return new DetectionBatchResult(outputPaths, totalEvents, failures, results, writeCombinedJson, paused);
     }
 
     private IReadOnlyDictionary<string, string> BuildProcessEnvironment()
@@ -222,6 +276,13 @@ public sealed class DetectionService
     {
         var outputDirectory = GetDefaultOutputDirectory(clipPath);
         var fileName = $"{SanitizeFileName(Path.GetFileNameWithoutExtension(clipPath))}_meteors_{timestamp}.json";
+        return Path.Combine(outputDirectory, fileName);
+    }
+
+    public static string GetPartialOutputPath(string clipPath)
+    {
+        var outputDirectory = GetDefaultOutputDirectory(clipPath);
+        var fileName = $"{Path.GetFileName(clipPath)}_meteors_partial.json";
         return Path.Combine(outputDirectory, fileName);
     }
 

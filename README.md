@@ -212,6 +212,16 @@ The app is a C# / Avalonia shell around the existing Python detector. It current
 - history of successful detection runs;
 - detecting or choosing the Resolve `Fusion/Scripts/Utility` directory and installing `Import Meteors.lua`.
 
+### Pause and resume
+
+The desktop app can pause detection, but this first version is intended mainly for cases where pausing is unavoidable, or where a power outage or system crash interrupts detection on a very large file.
+
+While detection is running, the app writes a resumable partial checkpoint every 1000 analyzed frames. It does this even without user intervention, so if the machine loses power or the app/system crashes, reopening the same clip can offer `Resume Detection` from the last saved checkpoint.
+
+When the user clicks `Pause`, detection does not stop immediately. It waits until the next checkpoint boundary, currently the next processed frame divisible by 1000, writes the partial JSON, then exits cleanly. If the current checkpoint frame contains candidates, the detector may defer briefly until the next non-candidate frame before saving.
+
+Resume is not a fast seek in this version. The detector still starts decoding from the beginning of the clip, then skips expensive detection work until it reaches the saved checkpoint area. In practice this has only been about 20%-30% faster than running detection from scratch, so it is best treated as crash/power-loss recovery rather than a normal performance optimization.
+
 Development builds use a bundled runtime if present under `runtime/python` and `runtime/ffmpeg`; otherwise they fall back to `.venv` and then the platform Python executable. Public releases should bundle their own runtime.
 
 ## How the main detector works

@@ -14,6 +14,12 @@ from typing import Any, Iterable
 import cv2
 import numpy as np
 
+from meteor_detector import __version__
+
+
+PROGRESS_LOG_INTERVAL_FRAMES = 100
+PARTIAL_CHECKPOINT_INTERVAL_FRAMES = 1000
+
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "detector_algorithm": "optimized_temporal_median",
@@ -112,6 +118,18 @@ class Event:
     max_area_scan_px: int
     candidate_count: int
     candidates: list[dict[str, Any]] | None = None
+
+
+@dataclass
+class ScanCheckpoint:
+    frame_progress: int
+    candidates: list[Candidate]
+
+
+@dataclass
+class PauseRequested(Exception):
+    frame_progress: int
+    partial_output_path: Path
 
 
 class TemporalModelScratch:
@@ -589,6 +607,122 @@ def group_events(filename: str, candidates: list[Candidate], cfg: dict[str, Any]
     return events
 
 
+def _candidate_from_json(data: dict[str, Any]) -> Candidate:
+    return Candidate(
+        frame=int(data["frame"]),
+        x=int(data["x"]),
+        y=int(data["y"]),
+        w=int(data["w"]),
+        h=int(data["h"]),
+        area=int(data["area"]),
+        cx=float(data["cx"]),
+        cy=float(data["cy"]),
+        length=float(data["length"]),
+        width=float(data["width"]),
+        elongation=float(data["elongation"]),
+        angle_deg=float(data["angle_deg"]),
+        mean_signal=float(data["mean_signal"]),
+        peak_signal=float(data["peak_signal"]),
+        peak_sigma=float(data["peak_sigma"]),
+    )
+
+
+def load_scan_checkpoint(path: Path, source_path: Path) -> ScanCheckpoint:
+    with path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    if not bool(payload.get("partial", False)):
+        raise ValueError(f"Partial checkpoint is not marked partial: {path}")
+
+    files = payload.get("files") or []
+    if not files:
+        raise ValueError(f"Partial checkpoint does not contain file metadata: {path}")
+
+    file_result = files[0]
+    checkpoint_source_text = str(file_result.get("path") or payload.get("source_path") or "")
+    if not checkpoint_source_text:
+        raise ValueError(f"Partial checkpoint does not identify a source video: {path}")
+    if Path(checkpoint_source_text).resolve() != source_path.resolve():
+        raise ValueError(f"Partial checkpoint source does not match input: {path}")
+
+    frame_progress = int(payload.get("frame_progress", file_result.get("frame_progress", 0)))
+    candidates = [_candidate_from_json(item) for item in payload.get("partial_candidates", [])]
+    return ScanCheckpoint(frame_progress=frame_progress, candidates=candidates)
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+        f.write("\n")
+    tmp.replace(path)
+
+
+def _partial_payload(
+    path: Path,
+    info: dict[str, Any],
+    sw: int,
+    sh: int,
+    cfg: dict[str, Any],
+    frame_progress: int,
+    candidates: list[Candidate],
+    events: list[Event],
+    profile_data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    file_result = {
+        "filename": path.name,
+        "path": str(path.resolve()),
+        **info,
+        "scan_width": sw,
+        "scan_height": sh,
+        "detector_algorithm": str(cfg.get("detector_algorithm", "optimized_temporal_median")),
+        "temporal_window_frames": int(cfg["temporal_window_frames"]),
+        "temporal_sample_stride": int(cfg.get("temporal_sample_stride", 1)),
+        "temporal_model_stride": int(cfg.get("temporal_model_stride", 1)),
+        "fast_prefilter": bool(cfg.get("fast_prefilter", False)),
+        "ignore_camera_bumps": bool(cfg.get("ignore_camera_bumps", False)),
+        "partial": True,
+        "frame_progress": frame_progress,
+        "events": [
+            {k: v for k, v in asdict(e).items() if v is not None}
+            for e in events
+        ],
+    }
+    if profile_data is not None:
+        file_result["profile"] = profile_data
+
+    return {
+        "format": "resolve-meteor-detector",
+        "format_version": 1,
+        "detector_version": __version__,
+        "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "partial": True,
+        "frame_progress": frame_progress,
+        "source_path": str(path.resolve()),
+        "config": cfg,
+        "files": [file_result],
+        "failures": [],
+        "partial_candidates": [asdict(c) for c in candidates],
+    }
+
+
+def write_partial_checkpoint(
+    partial_output_path: Path,
+    path: Path,
+    info: dict[str, Any],
+    sw: int,
+    sh: int,
+    cfg: dict[str, Any],
+    frame_progress: int,
+    candidates: list[Candidate],
+    profile_data: dict[str, Any] | None = None,
+) -> None:
+    events = group_events(path.name, candidates, cfg)
+    payload = _partial_payload(path, info, sw, sh, cfg, frame_progress, candidates, events, profile_data)
+    _atomic_write_json(partial_output_path, payload)
+
+
 def _rotate_for_display(img: np.ndarray, rotation: int) -> np.ndarray:
     r = rotation % 360
     if r == 90:
@@ -663,7 +797,18 @@ def format_profile(profile: dict[str, Any], filename: str) -> str:
     return "\n".join(lines)
 
 
-def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool = False) -> dict[str, Any]:
+def scan_file(
+    path: Path,
+    out_dir: Path,
+    cfg: dict[str, Any],
+    *,
+    profile: bool = False,
+    initial_candidates: list[Candidate] | None = None,
+    analysis_start_frame: int = 0,
+    partial_output_path: Path | None = None,
+    pause_request_path: Path | None = None,
+    checkpoint_interval_frames: int = PARTIAL_CHECKPOINT_INTERVAL_FRAMES,
+) -> dict[str, Any]:
     profiler = Profiler(profile)
     if "temporal_model_impl" not in cfg:
         apply_detector_algorithm(cfg)
@@ -690,7 +835,8 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
     temporal_scratch = TemporalModelScratch(len(sample_offsets), sh, sw) if str(cfg.get("temporal_model_impl", "median")) == "partition" else None
 
     estimated = info.get("estimated_frames") or 0
-    all_candidates: list[Candidate] = []
+    analysis_start_frame = max(0, int(analysis_start_frame))
+    all_candidates: list[Candidate] = list(initial_candidates or [])
     algorithm = str(cfg.get("detector_algorithm", "optimized_temporal_median"))
     temporal_model_impl = str(cfg.get("temporal_model_impl", "median"))
     use_prefilter = bool(cfg.get("fast_prefilter", False))
@@ -702,6 +848,8 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
     processed_through = half - 1
     block_left = model_stride // 2
     block_right = model_stride - block_left - 1
+    last_candidate_frame = max((candidate.frame for candidate in all_candidates), default=-1)
+    next_checkpoint_frame = max(checkpoint_interval_frames, analysis_start_frame + checkpoint_interval_frames)
 
     def get_frame(index: int) -> np.ndarray:
         first = buf[0][0]
@@ -711,9 +859,13 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
         return buf[pos][1]
 
     def process_anchor(anchor: int) -> None:
-        nonlocal processed_through
+        nonlocal processed_through, last_candidate_frame
         start = max(half, anchor - block_left, processed_through + 1)
         end = anchor + block_right
+        if end < analysis_start_frame:
+            processed_through = max(processed_through, end)
+            return
+        start = max(start, analysis_start_frame)
 
         if use_prefilter:
             passed = _cheap_prefilter_block(
@@ -751,12 +903,43 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
                     profiler.inc("camera_bump_candidates", len(cands))
                     continue
                 all_candidates.extend(cands)
+                last_candidate_frame = max(last_candidate_frame, idx)
                 if cfg.get("diagnostic_jpegs", True):
                     td = time.perf_counter()
                     _write_diag(center, cands, idx, threshold, median_sigma, diag_dir,
                                 int(cfg["diagnostic_quality"]), int(info.get("rotation", 0)))
                     profiler.add_time("diagnostics", time.perf_counter() - td)
         processed_through = max(processed_through, end)
+
+    def maybe_write_checkpoint() -> None:
+        nonlocal next_checkpoint_frame
+        if partial_output_path is None or checkpoint_interval_frames <= 0:
+            return
+        if processed_through < next_checkpoint_frame or last_candidate_frame == processed_through:
+            return
+
+        profile_data = profiler.snapshot() if profile else None
+        write_partial_checkpoint(
+            partial_output_path,
+            path,
+            info,
+            sw,
+            sh,
+            cfg,
+            processed_through,
+            all_candidates,
+            profile_data,
+        )
+        print(f"[{path.name}] partial progress saved: frame={processed_through} path={partial_output_path}", file=sys.stderr)
+        next_checkpoint_frame = processed_through + checkpoint_interval_frames
+
+        if pause_request_path is not None and pause_request_path.exists():
+            try:
+                pause_request_path.unlink()
+            except FileNotFoundError:
+                pass
+            print(f"[{path.name}] detection paused: frame={processed_through}", file=sys.stderr)
+            raise PauseRequested(processed_through, partial_output_path)
 
     last_idx = -1
     last_progress_reported = 0
@@ -787,14 +970,16 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
             while buf and buf[0][0] < keep_from:
                 buf.popleft()
         decoded_frames = i + 1
-        if decoded_frames % 100 == 0:
+        if decoded_frames % PROGRESS_LOG_INTERVAL_FRAMES == 0:
             report_progress(decoded_frames)
         i += 1
+        maybe_write_checkpoint()
 
     max_target = last_idx - half
     while next_anchor <= max_target and buf and next_anchor + half <= last_idx:
         process_anchor(next_anchor)
         next_anchor += model_stride
+        maybe_write_checkpoint()
 
     if i and i != last_progress_reported:
         report_progress(i)

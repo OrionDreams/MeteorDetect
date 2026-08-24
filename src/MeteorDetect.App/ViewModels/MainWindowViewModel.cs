@@ -37,7 +37,17 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DetectCommand))]
     [NotifyCanExecuteChangedFor(nameof(AddFilesCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PauseDetectionCommand))]
     private bool _isDetecting;
+
+    [ObservableProperty]
+    private bool _isPauseRequested;
+
+    [ObservableProperty]
+    private string _detectButtonText = "Detect";
+
+    [ObservableProperty]
+    private string _pauseButtonText = "Pause";
 
     [ObservableProperty]
     private bool _ignoreCameraBumps;
@@ -122,6 +132,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         AppendLog($"Loaded {Clips.Count} clip(s).");
+        RefreshDetectButtonText();
         DetectCommand.NotifyCanExecuteChanged();
     }
 
@@ -129,6 +140,7 @@ public partial class MainWindowViewModel : ObservableObject
     private async Task DetectAsync()
     {
         IsDetecting = true;
+        IsPauseRequested = false;
         OutputPath = "";
         ResetProgress();
 
@@ -158,8 +170,17 @@ public partial class MainWindowViewModel : ObservableObject
 
                 if (group.Any(item => !item.Succeeded))
                 {
-                    clip.Status = "Failed";
-                    clip.EventSummary = "Failed";
+                    if (group.Any(item => item.Paused))
+                    {
+                        clip.Status = "Paused";
+                        clip.EventSummary = "Resume available";
+                        clip.RefreshPartialDetection();
+                    }
+                    else
+                    {
+                        clip.Status = "Failed";
+                        clip.EventSummary = "Failed";
+                    }
                 }
                 else
                 {
@@ -169,16 +190,26 @@ public partial class MainWindowViewModel : ObservableObject
             }
 
             await AddSuccessfulClipsToHistoryAsync(result.Clips);
-            OutputPath = result.IsCombinedOutput
+            OutputPath = result.IsPaused
+                ? "Detection paused. Progress was saved to the partial JSON file."
+                : result.IsCombinedOutput
                 ? $"Output: {result.PrimaryOutputPath}"
                 : $"Output: {result.OutputPaths.Count} JSON file(s)";
-            AppendLog($"Finished. Detected {result.EventCount} event(s); failures={result.FailureCount}.");
+            AppendLog(result.IsPaused
+                ? $"Paused. Completed outputs before pause: {result.OutputPaths.Count}; failures={result.FailureCount}."
+                : $"Finished. Detected {result.EventCount} event(s); failures={result.FailureCount}.");
             foreach (var outputPath in result.OutputPaths)
             {
                 AppendLog($"Wrote {outputPath}");
             }
 
-            if (result.FailureCount > 0)
+            if (result.IsPaused)
+            {
+                await _userInteraction.ShowNoticeAsync(
+                    "Detection paused",
+                    "Progress was saved. Reloading this clip will offer Resume Detection.");
+            }
+            else if (result.FailureCount > 0)
             {
                 var failedClips = result.Clips.Where(clip => !clip.Succeeded).ToList();
                 var message = result.EventCount > 0
@@ -208,7 +239,23 @@ public partial class MainWindowViewModel : ObservableObject
         finally
         {
             IsDetecting = false;
+            IsPauseRequested = false;
+            foreach (var clip in Clips)
+            {
+                clip.RefreshPartialDetection();
+            }
+            RefreshDetectButtonText();
         }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanPauseDetection))]
+    private void PauseDetection()
+    {
+        IsPauseRequested = true;
+        PauseButtonText = "Pausing...";
+        _detectionService.RequestPause();
+        AppendLog("Pause requested. Detection will stop after the next saved partial checkpoint.");
+        PauseDetectionCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand(CanExecute = nameof(CanRemoveSelectedHistoryEntry))]
@@ -239,6 +286,7 @@ public partial class MainWindowViewModel : ObservableObject
         {
             Clips.Remove(SelectedClip);
             SelectedClip = null;
+            RefreshDetectButtonText();
             DetectCommand.NotifyCanExecuteChanged();
         }
     }
@@ -251,7 +299,29 @@ public partial class MainWindowViewModel : ObservableObject
         SelectedClip = null;
         ResetProgress();
         AppendLog("Cleared clips.");
+        RefreshDetectButtonText();
         DetectCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand]
+    private void DiscardPartial(ClipItemViewModel? clip)
+    {
+        if (clip is null)
+        {
+            return;
+        }
+
+        var partialPath = clip.PartialDetectionPath;
+        if (File.Exists(partialPath))
+        {
+            File.Delete(partialPath);
+            AppendLog($"Discarded partial progress for {clip.Name}");
+        }
+
+        clip.Status = "Ready";
+        clip.EventSummary = "";
+        clip.RefreshPartialDetection();
+        RefreshDetectButtonText();
     }
 
     [RelayCommand]
@@ -413,6 +483,12 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         _remainingTimeTimer.Stop();
+        PauseButtonText = "Pause";
+    }
+
+    partial void OnIsPauseRequestedChanged(bool value)
+    {
+        PauseDetectionCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnWriteCombinedJsonChanged(bool value)
@@ -544,6 +620,13 @@ public partial class MainWindowViewModel : ObservableObject
         RemainingTimeText = "Remaining: --";
     }
 
+    private void RefreshDetectButtonText()
+    {
+        DetectButtonText = Clips.Any(clip => clip.HasPartialDetection)
+            ? "Resume Detection"
+            : "Detect";
+    }
+
     private static string FormatDuration(double seconds)
     {
         if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0)
@@ -584,6 +667,8 @@ public partial class MainWindowViewModel : ObservableObject
     private bool CanAddFiles() => !IsDetecting;
 
     private bool CanDetect() => !IsDetecting && Clips.Count > 0;
+
+    private bool CanPauseDetection() => IsDetecting && !IsPauseRequested;
 
     private bool CanRemoveSelected() => SelectedClip is not null;
 

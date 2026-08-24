@@ -87,6 +87,9 @@ def main() -> int:
                     help="Ignore frames with an implausibly high number of meteor-like candidates")
     ap.add_argument("--no-ignore-camera-bumps", action="store_true",
                     help="Disable camera-bump candidate burst filtering even if enabled in the config file")
+    ap.add_argument("--partial-output", type=Path, help="Write resumable partial progress to this JSON file")
+    ap.add_argument("--resume-from", type=Path, help="Resume detection from a partial progress JSON file")
+    ap.add_argument("--pause-request-file", type=Path, help="Pause after the next saved partial checkpoint if this file exists")
     args = ap.parse_args()
 
     if args.fast_prefilter and args.no_fast_prefilter:
@@ -96,7 +99,13 @@ def main() -> int:
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         ap.error("ffmpeg and ffprobe must be installed and available on PATH")
 
-    from meteor_detector.detector import apply_detector_algorithm, load_config, scan_file
+    from meteor_detector.detector import (
+        PauseRequested,
+        apply_detector_algorithm,
+        load_config,
+        load_scan_checkpoint,
+        scan_file,
+    )
 
     cfg = load_config(args.config)
     try:
@@ -151,6 +160,22 @@ def main() -> int:
     for p in files:
         print(f"Scanning {p}", file=sys.stderr)
         clip_failures = []
+        resume_checkpoint = None
+        analysis_start_frame = 0
+        if args.resume_from is not None:
+            resume_checkpoint = load_scan_checkpoint(args.resume_from.expanduser().resolve(), p)
+            resume_overlap = 30
+            analysis_start_frame = max(0, resume_checkpoint.frame_progress - resume_overlap)
+            resume_checkpoint.candidates = [
+                candidate
+                for candidate in resume_checkpoint.candidates
+                if candidate.frame < analysis_start_frame
+            ]
+            print(
+                f"Resuming from partial progress at frame {resume_checkpoint.frame_progress}; "
+                f"analysis restarts at frame {analysis_start_frame}",
+                file=sys.stderr,
+            )
         if combined_out is not None:
             diagnostic_dir = combined_out.parent
         elif output_arg is not None and len(files) == 1 and output_arg.suffix.lower() == ".json":
@@ -159,9 +184,20 @@ def main() -> int:
             diagnostic_dir = (per_clip_output_dir or Path()).resolve()
 
         try:
-            file_result = scan_file(p, diagnostic_dir, cfg, profile=args.profile)
+            file_result = scan_file(
+                p,
+                diagnostic_dir,
+                cfg,
+                profile=args.profile,
+                initial_candidates=resume_checkpoint.candidates if resume_checkpoint is not None else None,
+                analysis_start_frame=analysis_start_frame,
+                partial_output_path=args.partial_output.expanduser().resolve() if args.partial_output is not None else None,
+                pause_request_path=args.pause_request_file.expanduser().resolve() if args.pause_request_file is not None else None,
+            )
             results.append(file_result)
             clip_results = [file_result]
+        except PauseRequested:
+            return 0
         except Exception as exc:
             print(f"ERROR: {p}: {exc}", file=sys.stderr)
             failure = {"path": str(p), "error": str(exc)}
@@ -175,6 +211,10 @@ def main() -> int:
             else:
                 out = available_output_path(timestamped_output_path(p, timestamp, per_clip_output_dir)).resolve()
             write_payload(out, cfg, clip_results, clip_failures, created_utc)
+            if args.partial_output is not None and clip_results:
+                partial_output = args.partial_output.expanduser().resolve()
+                if partial_output.exists():
+                    partial_output.unlink()
             written_outputs.append(out)
             print(f"Wrote {out}", file=sys.stderr)
 
