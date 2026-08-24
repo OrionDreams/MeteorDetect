@@ -214,8 +214,9 @@ tools/dev-app.sh
 
 The app is a C# / Avalonia shell around the existing Python detector. It currently supports:
 
+- opening a directory of `.mp4`, `.mov` and `.m4v` clips;
 - opening one or more source clips;
-- showing clip duration, status and detected event count;
+- showing clip duration, status, detected event count and whether an existing meteor JSON is already associated;
 - running the Python detector with `--no-diagnostics --profile`;
 - detector algorithm and decoder selection from Settings;
 - per-clip timestamped JSON output by default, written next to each source clip;
@@ -223,6 +224,10 @@ The app is a C# / Avalonia shell around the existing Python detector. It current
 - progress bar, processed frames, approximate speed, remaining-time estimate and expandable logs;
 - history of successful detection runs;
 - detecting or choosing the Resolve `Fusion/Scripts/Utility` directory and installing `Import Meteors.lua`.
+
+Directory clips are listed alphabetically. The app scans the same directory for completed detector JSON files whose names contain `_meteors_`; when more than one JSON matches a clip, the newest JSON is used. Processed clips are shown with a magenta border and their meteor count is shown in a magenta badge.
+
+If no clip is selected, `Detect` starts at the first unprocessed clip in the visible list and continues through the remaining unprocessed clips. Select one or more clips to process only that selection, in visible-list order. Use Ctrl+Click on Linux/Windows, or Command+Click on macOS, to toggle individual clips. Use Shift+Click to select a range. Selected clips are highlighted with an orange border.
 
 ### Pause and resume
 

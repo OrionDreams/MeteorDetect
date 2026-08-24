@@ -58,6 +58,15 @@
         <Style Selector="Border.tile.processed">
             <Setter Property="BorderBrush" Value="{StaticResource MarkerBrush}"/>
         </Style>
+        <Style Selector="Border.selectionFrame">
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="9"/>
+            <Setter Property="Padding" Value="2"/>
+        </Style>
+        <Style Selector="Border.selectionFrame.selected">
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+        </Style>
         <Style Selector="Button">
             <Setter Property="MinHeight" Value="36"/>
             <Setter Property="Padding" Value="16,7"/>
@@ -166,35 +175,40 @@
                     </Grid>
 
                     <Border Grid.Row="1" Classes="panel" Padding="10">
-                        <ListBox ItemsSource="{Binding Clips}" SelectedItem="{Binding SelectedClip, Mode=TwoWay}">
+                        <ListBox ItemsSource="{Binding Clips}"
+                                 SelectedItem="{Binding SelectedClip, Mode=TwoWay}"
+                                 SelectionMode="Multiple"
+                                 behaviors:ListBoxSelectionMirror.SelectedItems="{Binding SelectedClips}">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ClipItemViewModel">
-                                    <Border Classes="tile" Classes.processed="{Binding HasProcessedDetection}">
-                                        <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
-                                            <Grid ColumnDefinitions="2.1*,*,1.2*,Auto" ColumnSpacing="18">
-                                                <StackPanel>
-                                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                                                    <TextBlock Text="{Binding Path}" Classes="muted"/>
-                                                </StackPanel>
-                                                <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
-                                                <Border Grid.Column="2" Background="#202838" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                    <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                                </Border>
-                                                <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" IsVisible="{Binding IsEventBadgeVisible}">
-                                                    <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
-                                                </Border>
+                                    <Border Classes="selectionFrame" Classes.selected="{Binding IsSelected}">
+                                        <Border Classes="tile" Classes.processed="{Binding HasProcessedDetection}">
+                                            <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                                                <Grid ColumnDefinitions="2.1*,*,1.2*,Auto" ColumnSpacing="18">
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                                        <TextBlock Text="{Binding Path}" Classes="muted"/>
+                                                    </StackPanel>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
+                                                    <Border Grid.Column="2" Background="#202838" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" HorizontalAlignment="Left">
+                                                        <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                    </Border>
+                                                    <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" IsVisible="{Binding IsEventBadgeVisible}">
+                                                        <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
+                                                    </Border>
+                                                </Grid>
+                                                <Grid Grid.Row="1"
+                                                      ColumnDefinitions="*,Auto"
+                                                      ColumnSpacing="10"
+                                                      IsVisible="{Binding HasPartialDetection}">
+                                                    <TextBlock Text="{Binding PartialDetectionText}" Classes="secondary" VerticalAlignment="Center"/>
+                                                    <Button Grid.Column="1"
+                                                            Content="Discard progress"
+                                                            Command="{Binding #Root.DataContext.DiscardPartialCommand}"
+                                                            CommandParameter="{Binding}"/>
+                                                </Grid>
                                             </Grid>
-                                            <Grid Grid.Row="1"
-                                                  ColumnDefinitions="*,Auto"
-                                                  ColumnSpacing="10"
-                                                  IsVisible="{Binding HasPartialDetection}">
-                                                <TextBlock Text="{Binding PartialDetectionText}" Classes="secondary" VerticalAlignment="Center"/>
-                                                <Button Grid.Column="1"
-                                                        Content="Discard progress"
-                                                        Command="{Binding #Root.DataContext.DiscardPartialCommand}"
-                                                        CommandParameter="{Binding}"/>
-                                            </Grid>
-                                        </Grid>
+                                        </Border>
                                     </Border>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>

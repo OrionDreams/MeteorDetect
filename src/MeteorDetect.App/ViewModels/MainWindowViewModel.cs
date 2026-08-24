@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -125,11 +126,14 @@ public partial class MainWindowViewModel : ObservableObject
             Interval = TimeSpan.FromSeconds(1)
         };
         _remainingTimeTimer.Tick += (_, _) => RefreshRemainingTimeCountdown(DateTimeOffset.Now);
+        SelectedClips.CollectionChanged += OnSelectedClipsChanged;
 
         _ = InitializeAsync();
     }
 
     public ObservableCollection<ClipItemViewModel> Clips { get; } = [];
+
+    public ObservableCollection<ClipItemViewModel> SelectedClips { get; } = [];
 
     public ObservableCollection<ProcessingHistoryEntryViewModel> HistoryEntries { get; } = [];
 
@@ -196,14 +200,18 @@ public partial class MainWindowViewModel : ObservableObject
 
         try
         {
+            var targetClips = GetDetectionTargets();
             foreach (var clip in Clips)
             {
-                clip.Status = "Queued";
-                clip.ClearProcessedDetection();
+                if (targetClips.Contains(clip))
+                {
+                    clip.Status = "Queued";
+                    clip.ClearProcessedDetection();
+                }
             }
 
             var result = await _detectionService.DetectAsync(
-                Clips.Select(clip => clip.Path).ToList(),
+                targetClips.Select(clip => clip.Path).ToList(),
                 SelectedDetectorAlgorithm.Id,
                 SelectedDetectorDecoder.Id,
                 IgnoreCameraBumps,
@@ -334,19 +342,29 @@ public partial class MainWindowViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRemoveSelected))]
     private void RemoveSelected()
     {
-        if (SelectedClip is not null)
+        var clipsToRemove = GetSelectedClipsInListOrder();
+        if (clipsToRemove.Count == 0 && SelectedClip is not null)
         {
-            Clips.Remove(SelectedClip);
-            SelectedClip = null;
-            RefreshDetectButtonText();
-            DetectCommand.NotifyCanExecuteChanged();
+            clipsToRemove = [SelectedClip];
         }
+
+        foreach (var clip in clipsToRemove)
+        {
+            Clips.Remove(clip);
+        }
+
+        SelectedClips.Clear();
+        SelectedClip = null;
+        RefreshDetectButtonText();
+        DetectCommand.NotifyCanExecuteChanged();
+        RemoveSelectedCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
     private void Clear()
     {
         Clips.Clear();
+        SelectedClips.Clear();
         OutputPath = "";
         SelectedClip = null;
         LoadedDirectoryPath = "";
@@ -684,7 +702,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     private void RefreshDetectButtonText()
     {
-        DetectButtonText = Clips.Any(clip => clip.HasPartialDetection)
+        DetectButtonText = GetDetectionTargets().FirstOrDefault()?.HasPartialDetection == true
             ? "Resume Detection"
             : "Detect";
     }
@@ -709,6 +727,7 @@ public partial class MainWindowViewModel : ObservableObject
         var associations = LoadDetectionAssociations(videoPaths);
 
         Clips.Clear();
+        SelectedClips.Clear();
         SelectedClip = null;
         foreach (var path in videoPaths)
         {
@@ -725,6 +744,48 @@ public partial class MainWindowViewModel : ObservableObject
         RefreshDetectButtonText();
         DetectCommand.NotifyCanExecuteChanged();
         RemoveSelectedCommand.NotifyCanExecuteChanged();
+    }
+
+    private void OnSelectedClipsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        foreach (var clip in Clips)
+        {
+            clip.IsSelected = SelectedClips.Contains(clip);
+        }
+
+        RefreshDetectButtonText();
+        DetectCommand.NotifyCanExecuteChanged();
+        RemoveSelectedCommand.NotifyCanExecuteChanged();
+    }
+
+    private List<ClipItemViewModel> GetSelectedClipsInListOrder()
+    {
+        return Clips
+            .Where(clip => SelectedClips.Contains(clip))
+            .ToList();
+    }
+
+    private List<ClipItemViewModel> GetDetectionTargets()
+    {
+        var selectedClips = GetSelectedClipsInListOrder();
+        if (selectedClips.Count > 0)
+        {
+            return selectedClips;
+        }
+
+        var firstUnprocessedIndex = Clips
+            .Select((clip, index) => new { clip, index })
+            .FirstOrDefault(item => !item.clip.HasProcessedDetection)
+            ?.index;
+        if (firstUnprocessedIndex is null)
+        {
+            return [];
+        }
+
+        return Clips
+            .Skip(firstUnprocessedIndex.Value)
+            .Where(clip => !clip.HasProcessedDetection)
+            .ToList();
     }
 
     private static IReadOnlyDictionary<string, DetectionAssociation> LoadDetectionAssociations(IReadOnlyList<string> videoPaths)
@@ -923,11 +984,11 @@ public partial class MainWindowViewModel : ObservableObject
 
     private bool CanRefreshDirectory() => !IsDetecting && HasLoadedDirectory;
 
-    private bool CanDetect() => !IsDetecting && Clips.Count > 0;
+    private bool CanDetect() => !IsDetecting && GetDetectionTargets().Count > 0;
 
     private bool CanPauseDetection() => IsDetecting && !IsPauseRequested;
 
-    private bool CanRemoveSelected() => SelectedClip is not null;
+    private bool CanRemoveSelected() => SelectedClip is not null || SelectedClips.Count > 0;
 
     private bool CanRemoveSelectedHistoryEntry() => SelectedHistoryEntry is not null;
 

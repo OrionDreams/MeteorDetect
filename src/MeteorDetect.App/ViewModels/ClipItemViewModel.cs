@@ -15,6 +15,9 @@ public partial class ClipItemViewModel : ObservableObject
     private string _eventSummary = "";
 
     [ObservableProperty]
+    private bool _isSelected;
+
+    [ObservableProperty]
     private bool _isEventBadgeVisible;
 
     [ObservableProperty]
