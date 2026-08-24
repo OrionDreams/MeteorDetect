@@ -75,11 +75,20 @@ User's target is closer to 100,000 frames in ~10 minutes if feasible.
 
 Adds profiling and an experimental coarse CPU prefilter. See `PERFORMANCE.md`.
 
+Later C2746 validation showed the Fast Prefilter can miss real meteors, so it should not be
+recommended for normal processing.
+
 ### v0.6
 
 Adds the first desktop application around the detector, plus the self-contained in-Resolve Lua importer. The app can load multiple clips, run detection through the Python CLI, show progress parsed from detector stderr, install the Lua importer, and keep a local processing history.
 
 The CLI and UI now default to per-clip JSON output. Combined multi-clip JSON remains available for compatibility, but normal Resolve import should expect one JSON per processed clip.
+
+The default detector algorithm is now `optimized_temporal_median`: the same recall-focused
+temporal median/MAD detector family, using exact partition-based temporal median/MAD,
+reusable scratch buffers and precomputed local threshold maps. The original
+`temporal_median_mad` path remains available as a slower fallback if the optimized default
+misses a meteor on real footage.
 
 ## Real sample findings
 
@@ -92,6 +101,11 @@ It contains exactly one meteor.
 The meteor is faint/moderate in an individual encoded frame but coherent and elongated across multiple frames. v0.4/v0.5 deep detection returns one event spanning source frames 29–31 in the supplied trimmed clip.
 
 This is a key design finding: multi-frame line coherence is more informative than requiring a very strong individual-frame signal.
+
+`C2746.MP4` contains 14 manually reviewed real meteors in the baseline run. The optimized
+temporal median path has matched the baseline event frame ranges on this clip. Fast
+Prefilter and larger temporal-model-stride experiments missed or changed real events and
+should remain experimental.
 
 ## Current optimization constraint
 

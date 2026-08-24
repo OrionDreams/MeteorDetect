@@ -21,8 +21,16 @@ Run both paths:
 
 ```bash
 python -m meteor_detector.cli C2738-00.01.58.243-00.02.00.996.MP4 \
-  -o baseline.json --no-diagnostics --profile
+  -o optimized.json --no-diagnostics --profile
 
+python -m meteor_detector.cli C2738-00.01.58.243-00.02.00.996.MP4 \
+  -o original-baseline.json --no-diagnostics --profile --detector-algorithm temporal_median_mad
+```
+
+The experimental Fast Prefilter path may be run for comparison, but it is not recommended
+for normal processing:
+
+```bash
 python -m meteor_detector.cli C2738-00.01.58.243-00.02.00.996.MP4 \
   -o fast.json --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
 ```
@@ -33,14 +41,13 @@ Compare `files[0].events`.
 
 For a representative astronomical-night clip with known meteors:
 
-1. run v0.4 or v0.5 without prefilter as the accuracy reference;
+1. run the default `optimized_temporal_median` algorithm;
 2. record event frame ranges;
-3. run the prefilter preset with `--detector-algorithm temporal_median_mad_prefilter`;
-4. verify every known/reference event remains;
-5. compare false positives;
-6. compare profiler output and wall-clock runtime.
+3. if a known meteor is missing, rerun with `--detector-algorithm temporal_median_mad`;
+4. compare event frame ranges, false positives, profiler output and wall-clock runtime;
+5. run `--detector-algorithm temporal_median_mad_prefilter` only as an experimental comparison.
 
-Do not tighten prefilter thresholds until this comparison has been done on multiple known-positive clips, including faint meteors.
+Do not tighten prefilter thresholds until recall has been proven on multiple known-positive clips, including faint meteors. Current long-clip validation found missed real meteors with the prefilter, so it should stay off the normal path.
 
 ## Twilight footage
 
@@ -89,6 +96,7 @@ Verify that files can be added, detection can be started, progress updates appea
 - event frames are integers.
 - profiling appears only when requested.
 - the selected algorithm is recorded in `config.detector_algorithm` and file-level `detector_algorithm`.
+- the default selected algorithm is `optimized_temporal_median`.
 - enabling the prefilter is still recorded in `config.fast_prefilter` and file-level `fast_prefilter`.
 - per-clip mode writes one JSON payload per processed clip by default.
 - combined mode still writes a single payload containing all successful files and failures.

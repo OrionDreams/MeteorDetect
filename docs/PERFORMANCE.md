@@ -15,10 +15,17 @@ The desired improvement from v0.4 is therefore roughly 6×.
 Use:
 
 ```bash
-python -m meteor_detector.cli INPUT.MP4 -o profile.json --no-diagnostics --profile
+python -m meteor_detector.cli INPUT.MP4 -o optimized.json --no-diagnostics --profile
 ```
 
-Then repeat with:
+If the optimized default misses a meteor, compare with the original slower baseline:
+
+```bash
+python -m meteor_detector.cli INPUT.MP4 -o original-baseline.json --no-diagnostics --profile --detector-algorithm temporal_median_mad
+```
+
+The Fast Prefilter path can still be profiled, but it is not recommended for normal
+processing because it missed real meteors on longer validation footage:
 
 ```bash
 python -m meteor_detector.cli INPUT.MP4 -o profile-fast.json --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
@@ -37,10 +44,10 @@ Detector progress is intentionally coarse. The Python detector reports every 100
 : Optional coarse temporal streak filtering.
 
 `temporal_model`
-: Stack creation, temporal median, MAD, sigma floor and sigma blur.
+: Stack creation or scratch-buffer reuse, temporal median, MAD, sigma floor and sigma blur.
 
 `residual_blur_threshold`
-: Per-frame positive residual, Gaussian blur, sigma normalization and threshold mask.
+: Per-frame positive residual, Gaussian blur and local threshold mask.
 
 `mask_morphology_components`
 : Empty-mask test, morphological close, connected components.
@@ -64,7 +71,7 @@ Detector progress is intentionally coarse. The Python detector reports every 100
 - `prefilter_rejected_blocks`
 - `deep_blocks_skipped`
 
-For a useful prefilter on astronomical-night footage, `deep_blocks_skipped` should be substantial while known meteors remain present.
+For a useful prefilter on astronomical-night footage, `deep_blocks_skipped` should be substantial while known meteors remain present. Current validation does not meet that bar, so the prefilter should remain experimental.
 
 ## Optimization candidates after profiling
 
@@ -72,11 +79,16 @@ Do not implement all of these at once. Measure first.
 
 ### Low-risk deep-path optimizations
 
-1. Precompute the local threshold map per temporal model instead of dividing a full frame by `sigma_blur` every target frame.
-2. Eliminate the full-frame `z` temporary; calculate peak sigma only for surviving component pixels.
-3. Reuse preallocated residual/work/mask buffers where OpenCV/NumPy allow it cleanly.
-4. Avoid repeated kernel allocation for morphology.
-5. Test cheaper equivalent blur operations only against known-positive regression clips.
+1. Reuse preallocated residual/work/mask buffers where OpenCV/NumPy allow it cleanly.
+2. Avoid repeated kernel allocation for morphology.
+3. Test cheaper equivalent blur operations only against known-positive regression clips.
+
+Already applied in `optimized_temporal_median`:
+
+- exact partition-based temporal median/MAD;
+- reusable temporal model scratch buffers;
+- precomputed local threshold map per temporal model;
+- no full-frame `z` temporary during candidate extraction.
 
 ### Temporal model optimizations
 
@@ -90,6 +102,9 @@ robust model implementation to exact partition-based median/MAD with reusable sc
 buffers. On C2746, earlier FastDetect stride experiments missed or changed real events:
 stride 16 missed the event peaking at frame 2485, while stride 12 recovered that event but
 lost other baseline events and introduced a new event. Larger strides are not safe enough yet.
+
+The older `temporal_median_mad` path remains available as a slower fallback when comparing
+results or investigating a suspected missed meteor.
 
 ### Parallelism
 

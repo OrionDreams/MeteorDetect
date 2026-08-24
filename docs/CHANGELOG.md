@@ -16,6 +16,10 @@
 - Added interactive JSON selection with environment/home-directory fallbacks.
 - Added `resolve_importer/README_LUA.md` and Lua-first installation instructions to the main README.
 - Kept the Python Resolve importer for debugging and cross-checking.
+- Added detector algorithm selection and made `optimized_temporal_median` the default.
+- Kept the original `temporal_median_mad` algorithm as a slower fallback for suspected missed meteors.
+- Marked `temporal_median_mad_prefilter` as experimental/not recommended after C2746 validation showed missed real meteors.
+- Optimized temporal modeling with exact partition-based median/MAD, reusable scratch buffers and precomputed local threshold maps.
 
 ## 0.5.0
 

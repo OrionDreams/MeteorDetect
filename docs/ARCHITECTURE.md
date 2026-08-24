@@ -8,13 +8,9 @@
         v
 FFmpeg decode + scale to gray16le at scan_width (default 960)
         |
-        +------------------------------+
-        | optional --fast-prefilter    |
-        | ~480 px temporal streak test |
-        +------------------------------+
-        | pass                         | reject
-        v                              v
-robust temporal median + MAD        skip deep block
+        v
+optimized temporal median + MAD
+exact temporal model + scratch buffers
         |
         v
 per-frame positive residual + local sigma threshold
@@ -37,6 +33,11 @@ resolve_importer/import_meteors.py
         v
 Pink TimelineItem markers
 ```
+
+An experimental prefilter branch remains available through
+`--detector-algorithm temporal_median_mad_prefilter`, but it is not the default and is not
+recommended for normal processing because it has missed real meteors on longer validation
+footage.
 
 The desktop UI is an orchestration layer, not a replacement for the detector:
 
@@ -74,8 +75,8 @@ Core implementation:
 
 - FFprobe metadata
 - FFmpeg raw-frame generator
-- robust temporal model
-- optional coarse prefilter
+- optimized robust temporal model
+- optional coarse prefilter experiment
 - candidate extraction
 - line geometry
 - event grouping
@@ -124,7 +125,34 @@ sigma(x,y)      = max(noise_floor, 1.4826 * MAD)
 
 One model is reused for an 8-frame target block.
 
+The default detector algorithm is `optimized_temporal_median`. It uses the same median/MAD
+detection model as the original `temporal_median_mad` path, but computes the exact temporal
+median with partition-based NumPy operations and reusable scratch buffers. The older
+`temporal_median_mad` algorithm remains available as a slower fallback if the optimized
+default misses a meteor on real footage.
+
+In plain terms, for each pixel location the detector looks through nearby sampled frames
+and estimates:
+
+- normal brightness: the median value over nearby time;
+- normal variation: MAD, the median distance from that normal brightness.
+
+Example:
+
+```text
+sample values:        [100, 101, 99, 100, 102, 100, 850]
+median background:    100
+absolute deviations:  [0, 1, 1, 0, 2, 0, 750]
+MAD:                  1
+```
+
+The temporary spike does not define the background or normal noise. That is why faint,
+short-lived streaks can stand out while stable stars and foreground are suppressed.
+
 ## Fast prefilter
+
+The prefilter is not recommended for normal processing. It remains available only as an
+experimental profiling path because it missed real meteors on `C2746.MP4`.
 
 The prefilter uses two distant frames around the block as static references. For each target frame:
 

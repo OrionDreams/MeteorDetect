@@ -62,7 +62,13 @@ temporal_median_mad             original accurate baseline, slowest
 temporal_median_mad_prefilter   original baseline plus experimental Fast Prefilter
 ```
 
-Select one from the desktop Settings view, or from the CLI:
+`optimized_temporal_median` is the normal choice. It keeps the same recall-focused detector behavior as the original median/MAD path, but computes the temporal model with a faster exact implementation and reusable scratch buffers.
+
+If the optimized default misses a meteor on a real clip, rerun that clip with `temporal_median_mad`. That older path is slower, but it is useful as a conservative fallback and comparison baseline.
+
+`temporal_median_mad_prefilter` is not recommended for normal processing. On a longer known-positive clip (`C2746.MP4`), the Fast Prefilter missed real meteors. Keep it as an experimental profiling option only.
+
+Select an algorithm from the desktop Settings view, or from the CLI:
 
 ```bash
 bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile --detector-algorithm optimized_temporal_median
@@ -85,7 +91,7 @@ At roughly 480×270, it compares target frames against two distant temporal refe
 
 Blocks near a possible streak receive a temporal safety margin (`prefilter_margin_frames`) so a meteor near an 8-frame block boundary can cause both neighboring blocks to be analyzed deeply.
 
-The prefilter is **off by default** until it has been validated on more known-positive clips.
+The prefilter is **off by default** and not recommended for normal processing because longer validation found missed real meteors.
 
 ## Known-positive regression clip
 
@@ -95,7 +101,7 @@ The supplied original 4K sample:
 C2738-00.01.58.243-00.02.00.996.MP4
 ```
 
-contains one meteor. v0.5's deep detector finds one event spanning source frames **29–31**. The default fast-prefilter settings also preserve that same event in the development test.
+contains one meteor. The optimized default and the original temporal median/MAD path should find one event spanning source frames **29–31**.
 
 This regression matters because the meteor is only moderately significant in individual encoded frames but forms a coherent elongated event across several frames.
 
@@ -138,22 +144,31 @@ Disable JPEG diagnostics for speed measurements:
 bin/detect-meteors.sh C2752.MP4 --no-diagnostics
 ```
 
-Profile the current accurate deep detector:
+Profile the optimized default detector:
 
 ```bash
-bin/detect-meteors.sh C2752.MP4 -o baseline.json --no-diagnostics --profile
+bin/detect-meteors.sh C2752.MP4 -o optimized.json --no-diagnostics --profile
 ```
 
-Profile the experimental prefilter:
+Run the original slower baseline if the optimized default misses a meteor:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 -o original-baseline.json --no-diagnostics --profile --detector-algorithm temporal_median_mad
+```
+
+Run the experimental Fast Prefilter path only for comparison/profiling:
 
 ```bash
 bin/detect-meteors.sh C2752.MP4 -o fast.json --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
 ```
 
-Profile the optimized detector:
+For headless integrations, call the Python module directly:
 
 ```bash
-bin/detect-meteors.sh C2752.MP4 -o optimized.json --no-diagnostics --profile --detector-algorithm optimized_temporal_median
+.venv/bin/python -m meteor_detector.cli C2752.MP4 \
+  -o C2752_meteors.json \
+  --no-diagnostics \
+  --detector-algorithm optimized_temporal_median
 ```
 
 Use a custom config:
@@ -163,7 +178,7 @@ cp config.example.json config.json
 bin/detect-meteors.sh C2752.MP4 --config config.json
 ```
 
-If `fast_prefilter` is enabled in a config and you want to force it off:
+If an older config enables `fast_prefilter` and you want to force the normal optimized path:
 
 ```bash
 bin/detect-meteors.sh C2752.MP4 --config config.json --no-fast-prefilter
@@ -190,7 +205,7 @@ The app is a C# / Avalonia shell around the existing Python detector. It current
 - opening one or more source clips;
 - showing clip duration, status and detected event count;
 - running the Python detector with `--no-diagnostics --profile`;
-- optional fast prefilter;
+- detector algorithm selection from Settings;
 - per-clip timestamped JSON output by default, written next to each source clip;
 - optional combined JSON output for multiple clips;
 - progress bar, processed frames, approximate speed, remaining-time estimate and expandable logs;
@@ -201,11 +216,11 @@ Development builds use a bundled runtime if present under `runtime/python` and `
 
 ## How the main detector works
 
-At a 960-pixel scan width, the accurate path:
+At a 960-pixel scan width, the default `Optimized Temporal Median` path:
 
 1. decodes the 10-bit video to `gray16le` using FFmpeg;
 2. samples a symmetric 25-frame temporal window;
-3. builds a robust per-pixel median background and MAD-derived local noise map;
+3. builds a robust per-pixel median background and MAD-derived local noise map using the optimized exact temporal model;
 4. reuses that model over an 8-frame block;
 5. looks for positive transient residuals relative to local noise;
 6. keeps narrow elongated components;
@@ -214,7 +229,41 @@ At a 960-pixel scan width, the accurate path:
 
 A single-frame event can still be accepted, but it must satisfy stronger geometry and signal requirements.
 
+### High-level algorithm overview
+
+The detector is built around the stationary-camera assumption. Most of the image should be stable over nearby frames: stars, terrain, skyline and sky glow usually stay in the same place. Meteors are different because they are temporary bright streaks.
+
+For each model block, the detector looks at a 25-frame window around an anchor frame and samples every other frame, giving 13 sampled frames. For every pixel location, it asks: "What is this pixel's normal brightness over nearby time?"
+
+Example brightness values for one pixel over the sampled frames:
+
+```text
+[100, 101, 99, 100, 102, 100, 850]
+```
+
+The `850` could be a meteor, glint or other temporary spike. The median is `100`, so the spike does not become part of the background. That is why the detector uses a median instead of an average.
+
+MAD means Median Absolute Deviation. After finding the median brightness, the detector measures how far each sampled value is from that median:
+
+```text
+median brightness: 100
+absolute deviations: [0, 1, 1, 0, 2, 0, 750]
+MAD: 1
+```
+
+MAD gives a robust estimate of local pixel noise. The detector converts that to a sigma-like value:
+
+```text
+sigma = max(noise_floor, 1.4826 * MAD)
+```
+
+Then each target frame is compared with the background. A pixel only survives if it is bright in absolute terms and bright compared with its own local noise. Surviving pixels are cleaned up into connected shapes, and only narrow elongated shapes can become meteor candidates. Nearby compatible candidates are grouped into final meteor events using source frame numbers.
+
+The original `Temporal Median / MAD` algorithm and the default `Optimized Temporal Median` algorithm use the same detection idea. The optimized version uses a faster exact way to compute the median/MAD model and avoids repeated large temporary allocations.
+
 ## Fast prefilter configuration
+
+The Fast Prefilter path is not recommended for normal use. It remains available only for experiments because it missed real meteors on longer validation footage.
 
 Defaults:
 
