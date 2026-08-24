@@ -215,8 +215,10 @@
                                      AcceptsReturn="True"
                                      IsReadOnly="True"
                                      TextWrapping="Wrap"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
                                      FontFamily="Consolas,Menlo,Monospace"
                                      FontSize="12"
+                                     Height="160"
                                      MinHeight="120"/>
                         </Border>
                     </Expander>
