@@ -152,7 +152,9 @@
                             <TextBlock Classes="secondary" Text="Batch detection runs through the Python detector and writes JSON for Resolve import."/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                            <CheckBox Content="Ignore camera bumps" IsChecked="{Binding IgnoreCameraBumps}"/>
+                            <CheckBox Content="Ignore camera bumps"
+                                      IsChecked="{Binding IgnoreCameraBumps}"
+                                      ToolTip.Tip="Use this only if the camera was moved while recording."/>
                         </StackPanel>
                     </Grid>
 
