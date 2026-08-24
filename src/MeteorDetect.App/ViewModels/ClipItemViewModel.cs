@@ -50,7 +50,8 @@ public partial class ClipItemViewModel : ObservableObject
 
     partial void OnStatusChanged(string value)
     {
-        IsDetectingStatus = string.Equals(value, "Detecting...", StringComparison.Ordinal);
+        IsDetectingStatus = string.Equals(value, "Detecting...", StringComparison.Ordinal)
+            || string.Equals(value, "Resuming...", StringComparison.Ordinal);
     }
 
     public void SetProcessedDetection(string jsonPath, int eventCount)

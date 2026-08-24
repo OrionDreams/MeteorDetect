@@ -58,6 +58,9 @@
         <Style Selector="Border.tile.processed">
             <Setter Property="BorderBrush" Value="{StaticResource MarkerBrush}"/>
         </Style>
+        <Style Selector="Border.tile.clipTile">
+            <Setter Property="Padding" Value="14,10,14,8"/>
+        </Style>
         <Style Selector="Border.selectionFrame">
             <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -67,8 +70,14 @@
         <Style Selector="Border.selectionFrame.selected">
             <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
         </Style>
+        <Style Selector="Border.statusBadge">
+            <Setter Property="Background" Value="#202838"/>
+        </Style>
         <Style Selector="Border.statusBadge.detecting">
             <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.statusBadgeText">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
         </Style>
         <Style Selector="TextBlock.statusBadgeText.detecting">
             <Setter Property="Foreground" Value="#101217"/>
@@ -195,8 +204,8 @@
                                                           CommandParameter="{Binding}"/>
                                             </ContextMenu>
                                         </Border.ContextMenu>
-                                        <Border Classes="tile" Classes.processed="{Binding HasProcessedDetection}">
-                                            <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                                        <Border Classes="tile clipTile" Classes.processed="{Binding HasProcessedDetection}">
+                                            <Grid RowDefinitions="Auto,Auto" RowSpacing="6">
                                                 <Grid ColumnDefinitions="*,80,80,120" ColumnSpacing="10">
                                                     <StackPanel>
                                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
@@ -205,15 +214,15 @@
                                                     <Border Grid.Column="1" Background="#161E2A" BorderBrush="#303A4B" BorderThickness="1" CornerRadius="999" Padding="8,5" VerticalAlignment="Center">
                                                         <TextBlock Text="{Binding Duration}" Classes="secondary" FontSize="12" FontWeight="SemiBold" TextAlignment="Right"/>
                                                     </Border>
-                                                    <Border Grid.Column="2" Classes="statusBadge" Classes.detecting="{Binding IsDetectingStatus}" Background="#202838" CornerRadius="999" Padding="8,5" VerticalAlignment="Center">
-                                                        <TextBlock Classes="statusBadgeText" Classes.detecting="{Binding IsDetectingStatus}" Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                                    <Border Grid.Column="2" Classes="statusBadge" Classes.detecting="{Binding IsDetectingStatus}" CornerRadius="999" Padding="8,5" VerticalAlignment="Center">
+                                                        <TextBlock Classes="statusBadgeText" Classes.detecting="{Binding IsDetectingStatus}" Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" TextAlignment="Right"/>
                                                     </Border>
                                                     <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="8,5" VerticalAlignment="Center" IsVisible="{Binding IsEventBadgeVisible}">
                                                         <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold" TextAlignment="Right"/>
                                                     </Border>
                                                 </Grid>
                                                 <Grid Grid.Row="1"
-                                                      ColumnDefinitions="*,Auto"
+                                                      ColumnDefinitions="Auto,Auto,*"
                                                       ColumnSpacing="10"
                                                       IsVisible="{Binding HasPartialDetection}">
                                                     <TextBlock Text="{Binding PartialDetectionText}" Classes="secondary" VerticalAlignment="Center"/>
