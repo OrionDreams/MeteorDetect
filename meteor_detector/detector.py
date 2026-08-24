@@ -400,6 +400,7 @@ def find_candidates(
     center: np.ndarray,
     background: np.ndarray,
     sigma_blur: np.ndarray,
+    signal_threshold: np.ndarray,
     frame_index: int,
     cfg: dict[str, Any],
     profiler: Profiler,
@@ -408,10 +409,8 @@ def find_candidates(
     residual = center.astype(np.float32) - background
     np.maximum(residual, 0.0, out=residual)
     work = cv2.GaussianBlur(residual, (3, 3), 0)
-    z = work / np.maximum(sigma_blur, 1.0)
     abs_threshold = float(cfg["minimum_threshold"])
-    z_threshold = float(cfg["local_sigma_threshold"])
-    mask = ((work >= abs_threshold) & (z >= z_threshold)).astype(np.uint8) * 255
+    mask = (work >= signal_threshold).astype(np.uint8) * 255
     profiler.add_time("residual_blur_threshold", time.perf_counter() - t0)
 
     # Cheap empty-mask rejection avoids morphology and connected-components work on quiet frames.
@@ -447,6 +446,7 @@ def find_candidates(
         if length < min_len or elong < min_elong or width > max_width:
             continue
         values = work[ys, xs]
+        sigma_values = sigma_blur[ys, xs]
         cx, cy = centroids[label]
         out.append(Candidate(
             frame=frame_index, x=x, y=y, w=w, h=h, area=area,
@@ -455,7 +455,7 @@ def find_candidates(
             elongation=round(elong, 3), angle_deg=round(angle, 3),
             mean_signal=round(float(np.mean(values)), 3),
             peak_signal=round(float(np.max(values)), 3),
-            peak_sigma=round(float(np.max(z[ys, xs])), 3),
+            peak_sigma=round(float(np.max(values / np.maximum(sigma_values, 1.0))), 3),
         ))
     if out:
         profiler.inc("candidate_frames")
@@ -683,12 +683,16 @@ def scan_file(path: Path, out_dir: Path, cfg: dict[str, Any], *, profile: bool =
         background, _sigma, sigma_blur, median_sigma = _robust_temporal_model(
             sampled, float(cfg["local_noise_floor"]), temporal_model_impl
         )
+        signal_threshold = np.maximum(
+            float(cfg["minimum_threshold"]),
+            float(cfg["local_sigma_threshold"]) * np.maximum(sigma_blur, 1.0),
+        ).astype(np.float32, copy=False)
         profiler.add_time("temporal_model", time.perf_counter() - t_model)
         profiler.inc("temporal_models")
 
         for idx in range(start, end + 1):
             center = get_frame(idx)
-            cands, threshold = find_candidates(center, background, sigma_blur, idx, cfg, profiler)
+            cands, threshold = find_candidates(center, background, sigma_blur, signal_threshold, idx, cfg, profiler)
             if cands:
                 if ignore_camera_bumps and len(cands) > camera_bump_max_candidates:
                     profiler.inc("camera_bump_frames")
