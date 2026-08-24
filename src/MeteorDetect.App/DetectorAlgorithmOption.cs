@@ -39,3 +39,32 @@ public static class DetectorAlgorithms
             ?? All[0];
     }
 }
+
+public sealed record DetectorDecoderOption(string Id, string Name, string Description)
+{
+    public override string ToString() => Name;
+}
+
+public static class DetectorDecoders
+{
+    public const string Ffmpeg = "ffmpeg";
+    public const string OpenCv = "opencv";
+
+    public static IReadOnlyList<DetectorDecoderOption> All { get; } =
+    [
+        new(
+            Ffmpeg,
+            "FFmpeg",
+            "Default. Decodes and scales directly to 16-bit grayscale; best-tested for faint 10-bit footage."),
+        new(
+            OpenCv,
+            "OpenCV",
+            "Experimental. May decode faster, but commonly reads 8-bit frames before converting them to the detector's 16-bit grayscale format."),
+    ];
+
+    public static DetectorDecoderOption Resolve(string? id)
+    {
+        return All.FirstOrDefault(option => string.Equals(option.Id, id, StringComparison.Ordinal))
+            ?? All[0];
+    }
+}

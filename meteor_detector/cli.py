@@ -79,6 +79,11 @@ def main() -> int:
             "temporal_median_mad, temporal_median_mad_prefilter"
         ),
     )
+    ap.add_argument(
+        "--decoder",
+        choices=("ffmpeg", "opencv"),
+        help="Frame decoder backend. ffmpeg is the default and preserves the 16-bit grayscale path; opencv is experimental.",
+    )
     ap.add_argument("--fast-prefilter", action="store_true",
                     help="Enable experimental cheap temporal streak prefilter before robust analysis")
     ap.add_argument("--no-fast-prefilter", action="store_true",
@@ -96,8 +101,8 @@ def main() -> int:
         ap.error("--fast-prefilter and --no-fast-prefilter are mutually exclusive")
     if args.ignore_camera_bumps and args.no_ignore_camera_bumps:
         ap.error("--ignore-camera-bumps and --no-ignore-camera-bumps are mutually exclusive")
-    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-        ap.error("ffmpeg and ffprobe must be installed and available on PATH")
+    if not shutil.which("ffprobe"):
+        ap.error("ffprobe must be installed and available on PATH")
 
     from meteor_detector.detector import (
         PauseRequested,
@@ -115,6 +120,10 @@ def main() -> int:
         ap.error(str(exc))
     if args.no_diagnostics:
         cfg["diagnostic_jpegs"] = False
+    if args.decoder:
+        cfg["decoder"] = args.decoder
+    if str(cfg.get("decoder", "ffmpeg")).lower() == "ffmpeg" and not shutil.which("ffmpeg"):
+        ap.error("ffmpeg must be installed and available on PATH when using --decoder ffmpeg")
     if args.fast_prefilter:
         apply_detector_algorithm(cfg, "temporal_median_mad_prefilter")
     if args.no_fast_prefilter:
@@ -136,6 +145,7 @@ def main() -> int:
 
     print(f"Meteor Detector v{__version__}: scanning {len(files)} file(s)", file=sys.stderr)
     print(f"Detector algorithm: {cfg.get('detector_algorithm', 'optimized_temporal_median')}", file=sys.stderr)
+    print(f"Decoder: {cfg.get('decoder', 'ffmpeg')}", file=sys.stderr)
     if cfg.get("fast_prefilter", False):
         print("Fast prefilter: ENABLED (experimental; validate recall on known meteors)", file=sys.stderr)
     if cfg.get("ignore_camera_bumps", False):

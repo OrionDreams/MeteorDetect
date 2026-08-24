@@ -1,4 +1,5 @@
 {
+  "decoder": "ffmpeg",
   "detector_algorithm": "optimized_temporal_median",
   "scan_width": 960,
   "temporal_window_frames": 25,

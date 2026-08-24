@@ -184,6 +184,18 @@ If an older config enables `fast_prefilter` and you want to force the normal opt
 bin/detect-meteors.sh C2752.MP4 --config config.json --no-fast-prefilter
 ```
 
+The default decoder is FFmpeg, which preserves the detector's best-tested 16-bit grayscale path:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 --decoder ffmpeg
+```
+
+An experimental OpenCV decoder is also available for speed comparisons. It commonly receives 8-bit frames from OpenCV, then converts them to the detector's internal `uint16` grayscale format:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 --decoder opencv
+```
+
 The detector prints coarse progress to stderr every 100 decoded frames and once more at completion, for example:
 
 ```text
@@ -205,7 +217,7 @@ The app is a C# / Avalonia shell around the existing Python detector. It current
 - opening one or more source clips;
 - showing clip duration, status and detected event count;
 - running the Python detector with `--no-diagnostics --profile`;
-- detector algorithm selection from Settings;
+- detector algorithm and decoder selection from Settings;
 - per-clip timestamped JSON output by default, written next to each source clip;
 - optional combined JSON output for multiple clips;
 - progress bar, processed frames, approximate speed, remaining-time estimate and expandable logs;

@@ -34,6 +34,8 @@ public sealed class ProcessingHistoryEntry
 
     public string DetectorAlgorithm { get; set; } = DetectorAlgorithms.OptimizedTemporalMedian;
 
+    public string Decoder { get; set; } = DetectorDecoders.Ffmpeg;
+
     public bool FastPrefilter { get; set; }
 
     public long? FileSizeBytes { get; set; }

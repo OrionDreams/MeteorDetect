@@ -18,6 +18,7 @@ public sealed record ClipDetectionResult(
     double? DurationSeconds,
     string? DetectorVersion,
     string DetectorAlgorithm,
+    string Decoder,
     bool FastPrefilter);
 
 public sealed record DetectionBatchResult(
@@ -58,6 +59,7 @@ public sealed class DetectionService
     public async Task<DetectionBatchResult> DetectAsync(
         IReadOnlyList<string> clipPaths,
         string detectorAlgorithm,
+        string detectorDecoder,
         bool ignoreCameraBumps,
         bool writeCombinedJson,
         Action<string, string>? updateClipStatus,
@@ -70,6 +72,7 @@ public sealed class DetectionService
         }
 
         var algorithm = DetectorAlgorithms.Resolve(detectorAlgorithm);
+        var decoder = DetectorDecoders.Resolve(detectorDecoder);
         var batchDirectory = CreateBatchDirectory();
         var outputTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var results = new List<ClipDetectionResult>();
@@ -107,6 +110,8 @@ public sealed class DetectionService
 
             args.Add("--detector-algorithm");
             args.Add(algorithm.Id);
+            args.Add("--decoder");
+            args.Add(decoder.Id);
 
             if (ignoreCameraBumps)
             {
@@ -145,6 +150,7 @@ public sealed class DetectionService
                     null,
                     null,
                     algorithm.Id,
+                    decoder.Id,
                     algorithm.Id == DetectorAlgorithms.AccurateWithPrefilter));
                 paused = true;
                 break;
@@ -164,6 +170,7 @@ public sealed class DetectionService
                     null,
                     null,
                     algorithm.Id,
+                    decoder.Id,
                     algorithm.Id == DetectorAlgorithms.AccurateWithPrefilter));
                 failureElements.Add(CreateFailureElement(clipPath, error));
                 continue;
@@ -203,6 +210,9 @@ public sealed class DetectionService
                     clone.TryGetProperty("detector_algorithm", out var algorithmElement)
                         ? algorithmElement.GetString() ?? algorithm.Id
                         : algorithm.Id,
+                    clone.TryGetProperty("decoder", out var decoderElement)
+                        ? decoderElement.GetString() ?? decoder.Id
+                        : decoder.Id,
                     clone.TryGetProperty("fast_prefilter", out var prefilterElement)
                         ? prefilterElement.GetBoolean()
                         : algorithm.Id == DetectorAlgorithms.AccurateWithPrefilter));

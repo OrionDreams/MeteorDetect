@@ -7,6 +7,7 @@
         |
         v
 FFmpeg decode + scale to gray16le at scan_width (default 960)
+or experimental OpenCV decode normalized to uint16 grayscale
         |
         v
 optimized temporal median + MAD
@@ -74,7 +75,7 @@ CLI orchestration:
 Core implementation:
 
 - FFprobe metadata
-- FFmpeg raw-frame generator
+- FFmpeg raw-frame generator and experimental OpenCV frame generator
 - optimized robust temporal model
 - optional coarse prefilter experiment
 - candidate extraction

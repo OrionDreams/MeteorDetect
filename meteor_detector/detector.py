@@ -22,6 +22,7 @@ PARTIAL_CHECKPOINT_INTERVAL_FRAMES = 1000
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
+    "decoder": "ffmpeg",
     "detector_algorithm": "optimized_temporal_median",
     "scan_width": 960,
     "temporal_window_frames": 25,
@@ -264,6 +265,46 @@ def ffmpeg_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
         rc = p.wait()
         if rc != 0:
             raise RuntimeError(f"ffmpeg failed ({rc}) while reading {path}:\n{stderr}")
+
+
+def opencv_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
+    cap = cv2.VideoCapture(str(path))
+    if hasattr(cv2, "CAP_PROP_ORIENTATION_AUTO"):
+        cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 0)
+    if not cap.isOpened():
+        raise RuntimeError(f"OpenCV could not open video: {path}")
+
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if frame.ndim == 3:
+                if frame.shape[2] == 4:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY)
+                else:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            else:
+                gray = frame
+            if gray.shape[1] != width or gray.shape[0] != height:
+                gray = cv2.resize(gray, (width, height), interpolation=cv2.INTER_AREA)
+            if gray.dtype == np.uint16:
+                yield gray.copy()
+            elif gray.dtype == np.uint8:
+                yield (gray.astype(np.uint16) * 257)
+            else:
+                yield np.clip(gray, 0, np.iinfo(np.uint16).max).astype(np.uint16)
+    finally:
+        cap.release()
+
+
+def iter_decoded_frames(path: Path, width: int, height: int, cfg: dict[str, Any]) -> Iterable[np.ndarray]:
+    decoder = str(cfg.get("decoder", "ffmpeg")).lower()
+    if decoder == "ffmpeg":
+        return ffmpeg_frames(path, width, height)
+    if decoder == "opencv":
+        return opencv_frames(path, width, height)
+    raise ValueError(f"Unknown decoder '{decoder}'. Choices: ffmpeg, opencv")
 
 
 def apply_detector_algorithm(cfg: dict[str, Any], algorithm: str | None = None) -> None:
@@ -674,6 +715,7 @@ def _partial_payload(
         "filename": path.name,
         "path": str(path.resolve()),
         **info,
+        "decoder": str(cfg.get("decoder", "ffmpeg")),
         "scan_width": sw,
         "scan_height": sh,
         "detector_algorithm": str(cfg.get("detector_algorithm", "optimized_temporal_median")),
@@ -838,6 +880,7 @@ def scan_file(
     analysis_start_frame = max(0, int(analysis_start_frame))
     all_candidates: list[Candidate] = list(initial_candidates or [])
     algorithm = str(cfg.get("detector_algorithm", "optimized_temporal_median"))
+    decoder = str(cfg.get("decoder", "ffmpeg"))
     temporal_model_impl = str(cfg.get("temporal_model_impl", "median"))
     use_prefilter = bool(cfg.get("fast_prefilter", False))
     ignore_camera_bumps = bool(cfg.get("ignore_camera_bumps", False))
@@ -950,7 +993,7 @@ def scan_file(
         print(f"[{path.name}] frame {processed_frames}{suffix}, candidates={len(all_candidates)}", file=sys.stderr)
         last_progress_reported = processed_frames
 
-    frames_iter = iter(ffmpeg_frames(path, sw, sh))
+    frames_iter = iter(iter_decoded_frames(path, sw, sh, cfg))
     i = 0
     while True:
         td = time.perf_counter()
@@ -969,9 +1012,9 @@ def scan_file(
             keep_from = min(next_anchor - half, processed_through + 1)
             while buf and buf[0][0] < keep_from:
                 buf.popleft()
-        decoded_frames = i + 1
-        if decoded_frames % PROGRESS_LOG_INTERVAL_FRAMES == 0:
-            report_progress(decoded_frames)
+        decoded_frame_count = i + 1
+        if decoded_frame_count % PROGRESS_LOG_INTERVAL_FRAMES == 0:
+            report_progress(decoded_frame_count)
         i += 1
         maybe_write_checkpoint()
 
@@ -994,6 +1037,7 @@ def scan_file(
         "filename": path.name,
         "path": str(path.resolve()),
         **info,
+        "decoder": decoder,
         "scan_width": sw,
         "scan_height": sh,
         "detector_algorithm": algorithm,

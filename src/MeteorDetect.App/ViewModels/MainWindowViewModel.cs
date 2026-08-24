@@ -56,6 +56,9 @@ public partial class MainWindowViewModel : ObservableObject
     private DetectorAlgorithmOption _selectedDetectorAlgorithm = DetectorAlgorithms.All[0];
 
     [ObservableProperty]
+    private DetectorDecoderOption _selectedDetectorDecoder = DetectorDecoders.All[0];
+
+    [ObservableProperty]
     private bool _writeCombinedJson;
 
     [ObservableProperty]
@@ -115,6 +118,8 @@ public partial class MainWindowViewModel : ObservableObject
 
     public IReadOnlyList<DetectorAlgorithmOption> DetectorAlgorithmOptions => DetectorAlgorithms.All;
 
+    public IReadOnlyList<DetectorDecoderOption> DetectorDecoderOptions => DetectorDecoders.All;
+
     [RelayCommand(CanExecute = nameof(CanAddFiles))]
     private async Task AddFilesAsync()
     {
@@ -155,6 +160,7 @@ public partial class MainWindowViewModel : ObservableObject
             var result = await _detectionService.DetectAsync(
                 Clips.Select(clip => clip.Path).ToList(),
                 SelectedDetectorAlgorithm.Id,
+                SelectedDetectorDecoder.Id,
                 IgnoreCameraBumps,
                 WriteCombinedJson,
                 UpdateClipStatus,
@@ -375,6 +381,7 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         SelectedDetectorAlgorithm = DetectorAlgorithms.Resolve(_settings.DetectorAlgorithm);
+        SelectedDetectorDecoder = DetectorDecoders.Resolve(_settings.DetectorDecoder);
         WriteCombinedJson = _settings.WriteCombinedJson;
         IgnoreCameraBumps = _settings.IgnoreCameraBumps;
         await LoadHistoryAsync();
@@ -425,6 +432,7 @@ public partial class MainWindowViewModel : ObservableObject
             OutputJsonPath = result.JsonPath,
             DetectorVersion = result.DetectorVersion,
             DetectorAlgorithm = result.DetectorAlgorithm,
+            Decoder = result.Decoder,
             FastPrefilter = result.FastPrefilter,
             FileSizeBytes = fileInfo.Exists ? fileInfo.Length : null,
             LastWriteTimeUtc = fileInfo.Exists ? fileInfo.LastWriteTimeUtc : null
@@ -507,6 +515,12 @@ public partial class MainWindowViewModel : ObservableObject
     {
         _settings.DetectorAlgorithm = value.Id;
         _settings.FastPrefilter = value.Id == DetectorAlgorithms.AccurateWithPrefilter;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnSelectedDetectorDecoderChanged(DetectorDecoderOption value)
+    {
+        _settings.DetectorDecoder = value.Id;
         _ = SettingsStore.SaveAsync(_settings);
     }
 

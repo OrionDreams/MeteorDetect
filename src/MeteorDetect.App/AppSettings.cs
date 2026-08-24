@@ -16,6 +16,8 @@ public sealed class AppSettings
 
     public string DetectorAlgorithm { get; set; } = DetectorAlgorithms.OptimizedTemporalMedian;
 
+    public string DetectorDecoder { get; set; } = DetectorDecoders.Ffmpeg;
+
     public bool FastPrefilter { get; set; }
 }
 

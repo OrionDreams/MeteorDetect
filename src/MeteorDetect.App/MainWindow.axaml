@@ -300,11 +300,19 @@
 
                     <Border Grid.Row="2" Classes="tile">
                         <StackPanel Spacing="8">
-                            <TextBlock Text="Detector Algorithm" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="Detector" FontSize="18" FontWeight="SemiBold"/>
+                            <TextBlock Text="Algorithm" Classes="secondary"/>
                             <ComboBox ItemsSource="{Binding DetectorAlgorithmOptions}"
                                       SelectedItem="{Binding SelectedDetectorAlgorithm, Mode=TwoWay}"
                                       MinWidth="360"/>
                             <TextBlock Text="{Binding SelectedDetectorAlgorithm.Description}"
+                                       Classes="secondary"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="Decoder" Classes="secondary" Margin="0,8,0,0"/>
+                            <ComboBox ItemsSource="{Binding DetectorDecoderOptions}"
+                                      SelectedItem="{Binding SelectedDetectorDecoder, Mode=TwoWay}"
+                                      MinWidth="360"/>
+                            <TextBlock Text="{Binding SelectedDetectorDecoder.Description}"
                                        Classes="secondary"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
