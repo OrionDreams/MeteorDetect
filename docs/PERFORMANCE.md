@@ -21,7 +21,7 @@ python -m meteor_detector.cli INPUT.MP4 -o profile.json --no-diagnostics --profi
 Then repeat with:
 
 ```bash
-python -m meteor_detector.cli INPUT.MP4 -o profile-fast.json --no-diagnostics --profile --fast-prefilter
+python -m meteor_detector.cli INPUT.MP4 -o profile-fast.json --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
 ```
 
 Compare the exact same video.

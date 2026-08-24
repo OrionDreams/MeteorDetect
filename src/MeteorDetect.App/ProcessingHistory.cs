@@ -32,6 +32,8 @@ public sealed class ProcessingHistoryEntry
 
     public string? DetectorVersion { get; set; }
 
+    public string DetectorAlgorithm { get; set; } = DetectorAlgorithms.Accurate;
+
     public bool FastPrefilter { get; set; }
 
     public long? FileSizeBytes { get; set; }

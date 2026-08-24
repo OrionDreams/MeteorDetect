@@ -108,7 +108,7 @@ Packaged releases should bundle the detector runtime. Source/development builds 
 The desktop app stores settings under the platform user config directory in a `MeteorDetect` subdirectory:
 
 - `settings.json`: Resolve script directory and output-mode preference.
-- `history.json`: successful clip runs, meteor count, output JSON path, detector version, fast-prefilter flag and source file metadata.
+- `history.json`: successful clip runs, meteor count, output JSON path, detector version, detector algorithm, fast-prefilter flag and source file metadata.
 
 History entries are UI convenience data. They are independent from detector JSON outputs and should not be treated as the authoritative detection record.
 

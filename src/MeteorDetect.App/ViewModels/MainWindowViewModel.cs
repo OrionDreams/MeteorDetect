@@ -40,10 +40,10 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _isDetecting;
 
     [ObservableProperty]
-    private bool _fastPrefilter;
+    private bool _ignoreCameraBumps;
 
     [ObservableProperty]
-    private bool _ignoreCameraBumps;
+    private DetectorAlgorithmOption _selectedDetectorAlgorithm = DetectorAlgorithms.All[0];
 
     [ObservableProperty]
     private bool _writeCombinedJson;
@@ -103,6 +103,8 @@ public partial class MainWindowViewModel : ObservableObject
 
     public ObservableCollection<ProcessingHistoryEntryViewModel> HistoryEntries { get; } = [];
 
+    public IReadOnlyList<DetectorAlgorithmOption> DetectorAlgorithmOptions => DetectorAlgorithms.All;
+
     [RelayCommand(CanExecute = nameof(CanAddFiles))]
     private async Task AddFilesAsync()
     {
@@ -140,7 +142,7 @@ public partial class MainWindowViewModel : ObservableObject
 
             var result = await _detectionService.DetectAsync(
                 Clips.Select(clip => clip.Path).ToList(),
-                FastPrefilter,
+                SelectedDetectorAlgorithm.Id,
                 IgnoreCameraBumps,
                 WriteCombinedJson,
                 UpdateClipStatus,
@@ -296,6 +298,12 @@ public partial class MainWindowViewModel : ObservableObject
         _settings = await SettingsStore.LoadAsync();
         _settings.ResolveScriptDirectory ??= RuntimePaths.FirstExistingResolveUtilityDirectory();
         ResolveScriptDirectory = _settings.ResolveScriptDirectory ?? "";
+        if (_settings.FastPrefilter && string.Equals(_settings.DetectorAlgorithm, DetectorAlgorithms.Accurate, StringComparison.Ordinal))
+        {
+            _settings.DetectorAlgorithm = DetectorAlgorithms.AccurateWithPrefilter;
+        }
+
+        SelectedDetectorAlgorithm = DetectorAlgorithms.Resolve(_settings.DetectorAlgorithm);
         WriteCombinedJson = _settings.WriteCombinedJson;
         IgnoreCameraBumps = _settings.IgnoreCameraBumps;
         await LoadHistoryAsync();
@@ -345,6 +353,7 @@ public partial class MainWindowViewModel : ObservableObject
             DetectedAtUtc = DateTimeOffset.UtcNow,
             OutputJsonPath = result.JsonPath,
             DetectorVersion = result.DetectorVersion,
+            DetectorAlgorithm = result.DetectorAlgorithm,
             FastPrefilter = result.FastPrefilter,
             FileSizeBytes = fileInfo.Exists ? fileInfo.Length : null,
             LastWriteTimeUtc = fileInfo.Exists ? fileInfo.LastWriteTimeUtc : null
@@ -414,6 +423,13 @@ public partial class MainWindowViewModel : ObservableObject
     partial void OnIgnoreCameraBumpsChanged(bool value)
     {
         _settings.IgnoreCameraBumps = value;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnSelectedDetectorAlgorithmChanged(DetectorAlgorithmOption value)
+    {
+        _settings.DetectorAlgorithm = value.Id;
+        _settings.FastPrefilter = value.Id == DetectorAlgorithms.AccurateWithPrefilter;
         _ = SettingsStore.SaveAsync(_settings);
     }
 

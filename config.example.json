@@ -1,4 +1,5 @@
 {
+  "detector_algorithm": "temporal_median_mad",
   "scan_width": 960,
   "temporal_window_frames": 25,
   "temporal_sample_stride": 2,

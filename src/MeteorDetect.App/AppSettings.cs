@@ -13,6 +13,10 @@ public sealed class AppSettings
     public bool WriteCombinedJson { get; set; }
 
     public bool IgnoreCameraBumps { get; set; }
+
+    public string DetectorAlgorithm { get; set; } = DetectorAlgorithms.Accurate;
+
+    public bool FastPrefilter { get; set; }
 }
 
 public static class SettingsStore

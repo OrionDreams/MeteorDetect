@@ -16,6 +16,7 @@ public sealed record ClipDetectionResult(
     string? Error,
     double? DurationSeconds,
     string? DetectorVersion,
+    string DetectorAlgorithm,
     bool FastPrefilter);
 
 public sealed record DetectionBatchResult(
@@ -41,7 +42,7 @@ public sealed class DetectionService
 
     public async Task<DetectionBatchResult> DetectAsync(
         IReadOnlyList<string> clipPaths,
-        bool fastPrefilter,
+        string detectorAlgorithm,
         bool ignoreCameraBumps,
         bool writeCombinedJson,
         Action<string, string>? updateClipStatus,
@@ -53,6 +54,7 @@ public sealed class DetectionService
             throw new InvalidOperationException("No clips have been loaded.");
         }
 
+        var algorithm = DetectorAlgorithms.Resolve(detectorAlgorithm);
         var batchDirectory = CreateBatchDirectory();
         var outputTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var results = new List<ClipDetectionResult>();
@@ -81,10 +83,8 @@ public sealed class DetectionService
                 "--profile"
             };
 
-            if (fastPrefilter)
-            {
-                args.Add("--fast-prefilter");
-            }
+            args.Add("--detector-algorithm");
+            args.Add(algorithm.Id);
 
             if (ignoreCameraBumps)
             {
@@ -104,7 +104,16 @@ public sealed class DetectionService
             {
                 updateClipStatus?.Invoke(clipPath, "Failed");
                 var error = result.StandardError.Trim();
-                results.Add(new ClipDetectionResult(clipPath, clipOutput, 0, false, error, null, null, fastPrefilter));
+                results.Add(new ClipDetectionResult(
+                    clipPath,
+                    clipOutput,
+                    0,
+                    false,
+                    error,
+                    null,
+                    null,
+                    algorithm.Id,
+                    algorithm.Id == DetectorAlgorithms.AccurateWithPrefilter));
                 failureElements.Add(CreateFailureElement(clipPath, error));
                 continue;
             }
@@ -139,7 +148,12 @@ public sealed class DetectionService
                     null,
                     durationSeconds,
                     detectorVersion,
-                    fastPrefilter));
+                    clone.TryGetProperty("detector_algorithm", out var algorithmElement)
+                        ? algorithmElement.GetString() ?? algorithm.Id
+                        : algorithm.Id,
+                    clone.TryGetProperty("fast_prefilter", out var prefilterElement)
+                        ? prefilterElement.GetBoolean()
+                        : algorithm.Id == DetectorAlgorithms.AccurateWithPrefilter));
             }
 
             foreach (var failure in root.GetProperty("failures").EnumerateArray())

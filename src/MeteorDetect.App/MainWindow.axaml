@@ -153,7 +153,6 @@
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
                             <CheckBox Content="Ignore camera bumps" IsChecked="{Binding IgnoreCameraBumps}"/>
-                            <CheckBox Content="Fast prefilter" IsChecked="{Binding FastPrefilter}"/>
                         </StackPanel>
                     </Grid>
 
@@ -237,16 +236,17 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ProcessingHistoryEntryViewModel">
                                     <Border Classes="tile">
-                                        <Grid ColumnDefinitions="2.3*,Auto,Auto,Auto" ColumnSpacing="18">
+                                        <Grid ColumnDefinitions="2.3*,Auto,Auto,Auto,Auto" ColumnSpacing="18">
                                             <StackPanel>
                                                 <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/>
                                                 <TextBlock Text="{Binding ClipPath}" Classes="muted"/>
                                             </StackPanel>
                                             <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
-                                            <Border Grid.Column="2" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
+                                            <TextBlock Grid.Column="2" Text="{Binding DetectorAlgorithm}" Classes="muted" VerticalAlignment="Center"/>
+                                            <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding MeteorCount}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
                                             </Border>
-                                            <TextBlock Grid.Column="3" Text="{Binding DetectedAt}" Classes="muted" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding DetectedAt}" Classes="muted" VerticalAlignment="Center"/>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -262,7 +262,7 @@
             </TabItem>
 
             <TabItem Header="Settings">
-                <Grid Margin="18,0,0,0" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="14">
+                <Grid Margin="18,0,0,0" RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="14">
                     <StackPanel>
                         <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold"/>
                         <TextBlock Classes="secondary" Text="Resolve importer location, output behavior and detector runtime."/>
@@ -282,7 +282,19 @@
                         </StackPanel>
                     </Border>
 
-                    <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="14">
+                    <Border Grid.Row="2" Classes="tile">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Detector Algorithm" FontSize="18" FontWeight="SemiBold"/>
+                            <ComboBox ItemsSource="{Binding DetectorAlgorithmOptions}"
+                                      SelectedItem="{Binding SelectedDetectorAlgorithm, Mode=TwoWay}"
+                                      MinWidth="360"/>
+                            <TextBlock Text="{Binding SelectedDetectorAlgorithm.Description}"
+                                       Classes="secondary"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="14">
                         <Border Classes="tile">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="Output" FontSize="18" FontWeight="SemiBold"/>

@@ -52,12 +52,30 @@ It also records counters such as temporal models built, deeply analyzed frames, 
 
 The profile is included under each file's `profile` object in the detector JSON output.
 
-### 2. Experimental CPU-only fast prefilter
+### 2. Detector algorithms
+
+The detector has named algorithm presets:
+
+```text
+temporal_median_mad             accurate baseline, slowest
+temporal_median_mad_prefilter   baseline plus experimental Fast Prefilter
+fastdetect_experimental         exact small-sample median/MAD experiment with fewer temporal models
+```
+
+Select one from the desktop Settings view, or from the CLI:
+
+```bash
+bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile --detector-algorithm fastdetect_experimental
+```
+
+The old `--fast-prefilter` flag remains as a shortcut for `--detector-algorithm temporal_median_mad_prefilter`.
+
+### 3. Experimental CPU-only fast prefilter
 
 Enable it with:
 
 ```bash
-bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile --fast-prefilter
+bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
 ```
 
 This is **not** a second meteor classifier. It is a deliberately permissive cheap test whose only purpose is to reject blocks that are obviously quiet before v0.4's expensive per-pixel temporal median/MAD model runs.
@@ -128,7 +146,13 @@ bin/detect-meteors.sh C2752.MP4 -o baseline.json --no-diagnostics --profile
 Profile the experimental prefilter:
 
 ```bash
-bin/detect-meteors.sh C2752.MP4 -o fast.json --no-diagnostics --profile --fast-prefilter
+bin/detect-meteors.sh C2752.MP4 -o fast.json --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
+```
+
+Profile FastDetect:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 -o fastdetect.json --no-diagnostics --profile --detector-algorithm fastdetect_experimental
 ```
 
 Use a custom config:

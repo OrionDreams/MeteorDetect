@@ -27,6 +27,8 @@ public sealed partial class ProcessingHistoryEntryViewModel : ObservableObject
 
     public string MeteorCount => $"{Entry.MeteorCount:N0} meteors";
 
+    public string DetectorAlgorithm => MeteorDetect.App.DetectorAlgorithms.Resolve(Entry.DetectorAlgorithm).Name;
+
     public string DetectedAt => Entry.DetectedAtUtc
         .ToLocalTime()
         .ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);
