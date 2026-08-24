@@ -157,8 +157,8 @@
                     <TextBlock Classes="secondary"
                                Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
                 </StackPanel>
-                <Button Grid.Column="2" Content="Open Directory" Command="{Binding OpenDirectoryCommand}" MinWidth="132"/>
-                <Button Grid.Column="3" Content="Open File" Command="{Binding AddFilesCommand}" MinWidth="112"/>
+                <Button Grid.Column="2" Content="Open File" Command="{Binding AddFilesCommand}" MinWidth="112"/>
+                <Button Grid.Column="3" Content="Open Directory" Command="{Binding OpenDirectoryCommand}" MinWidth="132"/>
                 <Button Grid.Column="4" Content="Refresh Directory" Command="{Binding RefreshDirectoryCommand}" MinWidth="142"/>
                 <Button Grid.Column="5" Content="{Binding PauseButtonText}" Command="{Binding PauseDetectionCommand}" MinWidth="92"/>
                 <Button Grid.Column="6" Classes="primary" Content="{Binding DetectButtonText}" Command="{Binding DetectCommand}" MinWidth="132"/>
