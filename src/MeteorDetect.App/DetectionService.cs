@@ -74,7 +74,7 @@ public sealed class DetectionService
 
         var algorithm = DetectorAlgorithms.Resolve(detectorAlgorithm);
         var decoder = DetectorDecoders.Resolve(detectorDecoder);
-        var batchDirectory = CreateBatchDirectory();
+        var batchDirectory = writeCombinedJson ? CreateBatchDirectory() : null;
         var outputTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var results = new List<ClipDetectionResult>();
         var fileElements = new List<JsonElement>();
@@ -83,12 +83,6 @@ public sealed class DetectionService
         JsonElement? config = null;
         string? detectorVersion = null;
         var paused = false;
-        _pauseRequestPath = Path.Combine(batchDirectory, "pause-request.txt");
-        log?.Invoke($"Pause request file: {_pauseRequestPath}");
-        if (File.Exists(_pauseRequestPath))
-        {
-            File.Delete(_pauseRequestPath);
-        }
 
         foreach (var clipPath in clipPaths)
         {
@@ -96,9 +90,13 @@ public sealed class DetectionService
             updateClipStatus?.Invoke(clipPath, "Detecting...");
 
             var clipOutput = writeCombinedJson
-                ? Path.Combine(batchDirectory, $"{SanitizeFileName(Path.GetFileNameWithoutExtension(clipPath))}_meteors.json")
+                ? Path.Combine(batchDirectory!, $"{SanitizeFileName(Path.GetFileNameWithoutExtension(clipPath))}_meteors.json")
                 : GetAvailableOutputPath(CreatePerClipOutputPath(clipPath, outputTimestamp));
             var partialOutput = GetPartialOutputPath(clipPath);
+            var pauseRequestPath = GetPauseRequestPath(clipPath);
+            _pauseRequestPath = pauseRequestPath;
+            TryDeleteFile(pauseRequestPath);
+            log?.Invoke($"Pause request file: {pauseRequestPath}");
             var args = new List<string>
             {
                 "-m",
@@ -122,7 +120,7 @@ public sealed class DetectionService
             args.Add("--partial-output");
             args.Add(partialOutput);
             args.Add("--pause-request-file");
-            args.Add(_pauseRequestPath);
+            args.Add(pauseRequestPath);
             if (File.Exists(partialOutput))
             {
                 args.Add("--resume-from");
@@ -155,11 +153,13 @@ public sealed class DetectionService
                     decoder.Id,
                     algorithm.Id == DetectorAlgorithms.AccurateWithPrefilter));
                 paused = true;
+                _pauseRequestPath = null;
                 break;
             }
 
             if (result.ExitCode != 0)
             {
+                TryDeleteFile(pauseRequestPath);
                 updateClipStatus?.Invoke(clipPath, "Failed");
                 var error = result.StandardError.Trim();
                 results.Add(new ClipDetectionResult(
@@ -178,6 +178,7 @@ public sealed class DetectionService
                 continue;
             }
 
+            TryDeleteFile(pauseRequestPath);
             if (!writeCombinedJson)
             {
                 outputPaths.Add(clipOutput);
@@ -296,6 +297,30 @@ public sealed class DetectionService
         var outputDirectory = GetDefaultOutputDirectory(clipPath);
         var fileName = $"{Path.GetFileName(clipPath)}_meteors_partial.json";
         return Path.Combine(outputDirectory, fileName);
+    }
+
+    private static string GetPauseRequestPath(string clipPath)
+    {
+        var outputDirectory = GetDefaultOutputDirectory(clipPath);
+        var fileName = $"{Path.GetFileName(clipPath)}_meteors_pause_request.txt";
+        return Path.Combine(outputDirectory, fileName);
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private static string SanitizeFileName(string fileName)

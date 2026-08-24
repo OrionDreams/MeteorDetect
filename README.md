@@ -235,7 +235,7 @@ The desktop app can pause detection, but this first version is intended mainly f
 
 While detection is running, the app writes a resumable partial checkpoint every 1000 analyzed frames. It does this even without user intervention, so if the machine loses power or the app/system crashes, reopening the same clip can offer `Resume Detection` from the last saved checkpoint.
 
-When the user clicks `Pause`, detection does not stop immediately. The detector checks for pause requests at partial-checkpoint boundaries, currently every 1000 analyzed frames, writes a partial JSON at a safe checkpoint, then exits cleanly. If the current checkpoint frame contains candidates, the detector may defer briefly until the next non-candidate frame before saving.
+When the user clicks `Pause`, detection does not stop immediately. The detector checks for pause requests at partial-checkpoint boundaries, currently every 1000 analyzed frames, then writes a partial JSON and exits cleanly. Resume re-analyzes an overlap before the saved frame, so explicit pause can stop at the checkpoint even if that frame has candidates.
 
 Resume is not a fast seek in this version. The detector still starts decoding from the beginning of the clip, then skips expensive detection work until it reaches the saved checkpoint area. In practice this has only been about 20%-30% faster than running detection from scratch, so it is best treated as crash/power-loss recovery rather than a normal performance optimization.
 

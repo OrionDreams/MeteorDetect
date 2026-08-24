@@ -27,6 +27,7 @@ public partial class MainWindowViewModel : ObservableObject
     private readonly DetectionService _detectionService;
     private readonly IUserInteractionService _userInteraction;
     private readonly DispatcherTimer _remainingTimeTimer;
+    private readonly DispatcherTimer _pauseRequestTimer;
     private readonly Queue<double> _recentFrameRates = new();
     private AppSettings _settings = new();
     private DateTimeOffset? _previousProgressObservedAt;
@@ -136,6 +137,11 @@ public partial class MainWindowViewModel : ObservableObject
             Interval = TimeSpan.FromSeconds(1)
         };
         _remainingTimeTimer.Tick += (_, _) => RefreshRemainingTimeCountdown(DateTimeOffset.Now);
+        _pauseRequestTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(2)
+        };
+        _pauseRequestTimer.Tick += (_, _) => _detectionService.RequestPause();
         SelectedClips.CollectionChanged += OnSelectedClipsChanged;
 
         _ = InitializeAsync();
@@ -578,6 +584,15 @@ public partial class MainWindowViewModel : ObservableObject
     partial void OnIsPauseRequestedChanged(bool value)
     {
         IsPauseButtonPending = value;
+        if (value)
+        {
+            _pauseRequestTimer.Start();
+        }
+        else
+        {
+            _pauseRequestTimer.Stop();
+        }
+
         RefreshPauseCheckpointText();
         PauseDetectionCommand.NotifyCanExecuteChanged();
     }

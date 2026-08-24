@@ -760,9 +760,10 @@ def write_partial_checkpoint(
     cfg: dict[str, Any],
     frame_progress: int,
     candidates: list[Candidate],
+    events: list[Event] | None = None,
     profile_data: dict[str, Any] | None = None,
 ) -> None:
-    events = group_events(path.name, candidates, cfg)
+    events = group_events(path.name, candidates, cfg) if events is None else events
     payload = _partial_payload(path, info, sw, sh, cfg, frame_progress, candidates, events, profile_data)
     _atomic_write_json(partial_output_path, payload)
 
@@ -964,9 +965,15 @@ def scan_file(
             return
         if processed_through < next_checkpoint_frame:
             return
-        if last_candidate_frame == processed_through:
-            return
         pause_requested = pause_request_path is not None and pause_request_path.exists()
+        if pause_request_path is not None:
+            print(
+                f"[{path.name}] pause checkpoint check: frame={processed_through} "
+                f"exists={pause_requested}",
+                file=sys.stderr,
+            )
+        if not pause_requested and last_candidate_frame == processed_through:
+            return
 
         profile_data = profiler.snapshot() if profile else None
         write_partial_checkpoint(
@@ -978,7 +985,7 @@ def scan_file(
             cfg,
             processed_through,
             all_candidates,
-            profile_data,
+            profile_data=profile_data,
         )
         print(f"[{path.name}] partial progress saved: frame={processed_through} path={partial_output_path}", file=sys.stderr)
         next_checkpoint_frame = processed_through + checkpoint_interval_frames
