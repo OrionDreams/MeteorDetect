@@ -4,13 +4,13 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:behaviors="clr-namespace:MeteorDetect.App.Behaviors"
         xmlns:vm="clr-namespace:MeteorDetect.App.ViewModels"
-        mc:Ignorable="d" d:DesignWidth="1100" d:DesignHeight="720"
+        mc:Ignorable="d" d:DesignWidth="1280" d:DesignHeight="780"
         x:Class="MeteorDetect.App.MainWindow"
         x:Name="Root"
         x:DataType="vm:MainWindowViewModel"
         Title="MeteorDetect"
         Width="1280"
-        Height="720"
+        Height="780"
         MinWidth="900"
         MinHeight="620">
     <Window.Resources>
@@ -66,6 +66,12 @@
         </Style>
         <Style Selector="Border.selectionFrame.selected">
             <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+        </Style>
+        <Style Selector="Border.statusBadge.detecting">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+        </Style>
+        <Style Selector="TextBlock.statusBadgeText.detecting">
+            <Setter Property="Foreground" Value="#101217"/>
         </Style>
         <Style Selector="Button">
             <Setter Property="MinHeight" Value="36"/>
@@ -182,19 +188,28 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ClipItemViewModel">
                                     <Border Classes="selectionFrame" Classes.selected="{Binding IsSelected}">
+                                        <Border.ContextMenu>
+                                            <ContextMenu>
+                                                <MenuItem Header="Remove"
+                                                          Command="{Binding #Root.DataContext.RemoveClipCommand}"
+                                                          CommandParameter="{Binding}"/>
+                                            </ContextMenu>
+                                        </Border.ContextMenu>
                                         <Border Classes="tile" Classes.processed="{Binding HasProcessedDetection}">
                                             <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
-                                                <Grid ColumnDefinitions="2.1*,*,1.2*,Auto" ColumnSpacing="18">
+                                                <Grid ColumnDefinitions="*,80,80,120" ColumnSpacing="10">
                                                     <StackPanel>
                                                         <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
                                                         <TextBlock Text="{Binding Path}" Classes="muted"/>
                                                     </StackPanel>
-                                                    <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
-                                                    <Border Grid.Column="2" Background="#202838" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" HorizontalAlignment="Left">
-                                                        <TextBlock Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                    <Border Grid.Column="1" Background="#161E2A" BorderBrush="#303A4B" BorderThickness="1" CornerRadius="999" Padding="8,5" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding Duration}" Classes="secondary" FontSize="12" FontWeight="SemiBold" TextAlignment="Right"/>
                                                     </Border>
-                                                    <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center" IsVisible="{Binding IsEventBadgeVisible}">
-                                                        <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
+                                                    <Border Grid.Column="2" Classes="statusBadge" Classes.detecting="{Binding IsDetectingStatus}" Background="#202838" CornerRadius="999" Padding="8,5" VerticalAlignment="Center">
+                                                        <TextBlock Classes="statusBadgeText" Classes.detecting="{Binding IsDetectingStatus}" Text="{Binding Status}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" TextAlignment="Right"/>
+                                                    </Border>
+                                                    <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="8,5" VerticalAlignment="Center" IsVisible="{Binding IsEventBadgeVisible}">
+                                                        <TextBlock Text="{Binding EventSummary}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold" TextAlignment="Right"/>
                                                     </Border>
                                                 </Grid>
                                                 <Grid Grid.Row="1"
@@ -215,10 +230,9 @@
                         </ListBox>
                     </Border>
 
-                    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
-                        <Button Content="Remove selected" Command="{Binding RemoveSelectedCommand}"/>
-                        <Button Grid.Column="1" Content="Clear" Command="{Binding ClearCommand}"/>
-                        <TextBlock Grid.Column="2" Text="{Binding OutputPath}" Classes="muted" VerticalAlignment="Center"/>
+                    <Grid Grid.Row="2" ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                        <Button Content="{Binding DeselectButtonText}" Command="{Binding DeselectSelectedCommand}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding OutputPath}" Classes="muted" VerticalAlignment="Center"/>
                     </Grid>
 
                     <Border Grid.Row="3" Classes="panel" Padding="14">

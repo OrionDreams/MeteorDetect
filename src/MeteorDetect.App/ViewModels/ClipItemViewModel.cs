@@ -6,10 +6,13 @@ namespace MeteorDetect.App.ViewModels;
 public partial class ClipItemViewModel : ObservableObject
 {
     [ObservableProperty]
-    private string _duration = "Reading metadata...";
+    private string _duration = "--";
 
     [ObservableProperty]
     private string _status = "Ready";
+
+    [ObservableProperty]
+    private bool _isDetectingStatus;
 
     [ObservableProperty]
     private string _eventSummary = "";
@@ -45,11 +48,16 @@ public partial class ClipItemViewModel : ObservableObject
 
     public string PartialDetectionPath => DetectionService.GetPartialOutputPath(Path);
 
+    partial void OnStatusChanged(string value)
+    {
+        IsDetectingStatus = string.Equals(value, "Detecting...", StringComparison.Ordinal);
+    }
+
     public void SetProcessedDetection(string jsonPath, int eventCount)
     {
         HasProcessedDetection = true;
         ProcessedDetectionPath = jsonPath;
-        EventSummary = $"{eventCount} event(s)";
+        EventSummary = $"{eventCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} event(s)";
         IsEventBadgeVisible = true;
     }
 

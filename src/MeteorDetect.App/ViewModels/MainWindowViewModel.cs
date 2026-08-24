@@ -36,7 +36,6 @@ public partial class MainWindowViewModel : ObservableObject
     private double? _remainingSecondsAtEstimate;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(RemoveSelectedCommand))]
     private ClipItemViewModel? _selectedClip;
 
     [ObservableProperty]
@@ -48,6 +47,8 @@ public partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(AddFilesCommand))]
     [NotifyCanExecuteChangedFor(nameof(OpenDirectoryCommand))]
     [NotifyCanExecuteChangedFor(nameof(RefreshDirectoryCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeselectSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveClipCommand))]
     [NotifyCanExecuteChangedFor(nameof(PauseDetectionCommand))]
     private bool _isDetecting;
 
@@ -59,6 +60,9 @@ public partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private string _pauseButtonText = "Pause";
+
+    [ObservableProperty]
+    private string _deselectButtonText = "Deselect 0 files";
 
     [ObservableProperty]
     private bool _ignoreCameraBumps;
@@ -339,40 +343,43 @@ public partial class MainWindowViewModel : ObservableObject
         SelectedHistoryEntry = null;
     }
 
-    [RelayCommand(CanExecute = nameof(CanRemoveSelected))]
-    private void RemoveSelected()
+    [RelayCommand(CanExecute = nameof(CanRemoveClip))]
+    private void RemoveClip(ClipItemViewModel? clip)
     {
-        var clipsToRemove = GetSelectedClipsInListOrder();
-        if (clipsToRemove.Count == 0 && SelectedClip is not null)
+        if (clip is null)
         {
-            clipsToRemove = [SelectedClip];
+            return;
         }
 
-        foreach (var clip in clipsToRemove)
+        Clips.Remove(clip);
+        if (SelectedClips.Contains(clip))
         {
-            Clips.Remove(clip);
+            SelectedClips.Remove(clip);
         }
 
-        SelectedClips.Clear();
-        SelectedClip = null;
+        if (SelectedClip == clip)
+        {
+            SelectedClip = null;
+        }
+
         RefreshDetectButtonText();
         DetectCommand.NotifyCanExecuteChanged();
-        RemoveSelectedCommand.NotifyCanExecuteChanged();
+        DeselectSelectedCommand.NotifyCanExecuteChanged();
     }
 
-    [RelayCommand]
-    private void Clear()
+    [RelayCommand(CanExecute = nameof(CanDeselectSelected))]
+    private void DeselectSelected()
     {
-        Clips.Clear();
         SelectedClips.Clear();
-        OutputPath = "";
         SelectedClip = null;
-        LoadedDirectoryPath = "";
-        DirectorySummary = "";
-        ResetProgress();
-        AppendLog("Cleared clips.");
+        foreach (var clip in Clips)
+        {
+            clip.IsSelected = false;
+        }
+
         RefreshDetectButtonText();
         DetectCommand.NotifyCanExecuteChanged();
+        DeselectSelectedCommand.NotifyCanExecuteChanged();
     }
 
     [RelayCommand]
@@ -742,8 +749,9 @@ public partial class MainWindowViewModel : ObservableObject
         OutputPath = DirectorySummary;
         AppendLog($"Loaded directory {directoryPath}: {videoPaths.Count} video file(s), {processedCount} processed.");
         RefreshDetectButtonText();
+        RefreshDeselectButtonText();
         DetectCommand.NotifyCanExecuteChanged();
-        RemoveSelectedCommand.NotifyCanExecuteChanged();
+        DeselectSelectedCommand.NotifyCanExecuteChanged();
     }
 
     private void OnSelectedClipsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -754,8 +762,14 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         RefreshDetectButtonText();
+        RefreshDeselectButtonText();
         DetectCommand.NotifyCanExecuteChanged();
-        RemoveSelectedCommand.NotifyCanExecuteChanged();
+        DeselectSelectedCommand.NotifyCanExecuteChanged();
+    }
+
+    private void RefreshDeselectButtonText()
+    {
+        DeselectButtonText = $"Deselect {SelectedClips.Count} files";
     }
 
     private List<ClipItemViewModel> GetSelectedClipsInListOrder()
@@ -988,7 +1002,9 @@ public partial class MainWindowViewModel : ObservableObject
 
     private bool CanPauseDetection() => IsDetecting && !IsPauseRequested;
 
-    private bool CanRemoveSelected() => SelectedClip is not null || SelectedClips.Count > 0;
+    private bool CanDeselectSelected() => !IsDetecting && SelectedClips.Count > 0;
+
+    private bool CanRemoveClip(ClipItemViewModel? clip) => !IsDetecting && clip is not null;
 
     private bool CanRemoveSelectedHistoryEntry() => SelectedHistoryEntry is not null;
 
