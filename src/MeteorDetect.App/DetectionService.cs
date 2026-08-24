@@ -44,16 +44,17 @@ public sealed class DetectionService
         _runtime = runtime;
     }
 
-    public void RequestPause()
+    public string? RequestPause()
     {
         var pauseRequestPath = _pauseRequestPath;
         if (string.IsNullOrWhiteSpace(pauseRequestPath))
         {
-            return;
+            return null;
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(pauseRequestPath) ?? SettingsStore.SettingsDirectory);
         File.WriteAllText(pauseRequestPath, DateTimeOffset.UtcNow.ToString("O"));
+        return pauseRequestPath;
     }
 
     public async Task<DetectionBatchResult> DetectAsync(
@@ -83,6 +84,7 @@ public sealed class DetectionService
         string? detectorVersion = null;
         var paused = false;
         _pauseRequestPath = Path.Combine(batchDirectory, "pause-request.txt");
+        log?.Invoke($"Pause request file: {_pauseRequestPath}");
         if (File.Exists(_pauseRequestPath))
         {
             File.Delete(_pauseRequestPath);

@@ -62,6 +62,9 @@ public partial class MainWindowViewModel : ObservableObject
     private string _pauseButtonText = "Pause";
 
     [ObservableProperty]
+    private bool _isPauseButtonPending;
+
+    [ObservableProperty]
     private string _deselectButtonText = "Deselect 0 files";
 
     [ObservableProperty]
@@ -317,8 +320,10 @@ public partial class MainWindowViewModel : ObservableObject
     {
         IsPauseRequested = true;
         PauseButtonText = "Pausing...";
-        _detectionService.RequestPause();
-        AppendLog("Pause requested. Detection will stop after the next saved partial checkpoint.");
+        var pauseRequestPath = _detectionService.RequestPause();
+        AppendLog(string.IsNullOrWhiteSpace(pauseRequestPath)
+            ? "Pause requested, but no active detector pause file was available."
+            : $"Pause requested. Wrote {pauseRequestPath}");
         PauseDetectionCommand.NotifyCanExecuteChanged();
     }
 
@@ -569,6 +574,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     partial void OnIsPauseRequestedChanged(bool value)
     {
+        IsPauseButtonPending = value;
         PauseDetectionCommand.NotifyCanExecuteChanged();
     }
 

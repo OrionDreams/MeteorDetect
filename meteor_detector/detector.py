@@ -250,10 +250,12 @@ def ffmpeg_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
     if p.stdout is None:
         raise RuntimeError("Failed to open ffmpeg stdout")
     frame_bytes = width * height * 2
+    exhausted = False
     try:
         while True:
             buf = p.stdout.read(frame_bytes)
             if not buf:
+                exhausted = True
                 break
             if len(buf) != frame_bytes:
                 raise RuntimeError(f"Short raw frame from ffmpeg: expected {frame_bytes}, got {len(buf)}")
@@ -263,7 +265,7 @@ def ffmpeg_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
             p.stdout.close()
         stderr = p.stderr.read().decode("utf-8", errors="replace") if p.stderr else ""
         rc = p.wait()
-        if rc != 0:
+        if rc != 0 and exhausted:
             raise RuntimeError(f"ffmpeg failed ({rc}) while reading {path}:\n{stderr}")
 
 
@@ -893,6 +895,8 @@ def scan_file(
     block_right = model_stride - block_left - 1
     last_candidate_frame = max((candidate.frame for candidate in all_candidates), default=-1)
     next_checkpoint_frame = max(checkpoint_interval_frames, analysis_start_frame + checkpoint_interval_frames)
+    if pause_request_path is not None:
+        print(f"[{path.name}] pause request file: {pause_request_path}", file=sys.stderr)
 
     def get_frame(index: int) -> np.ndarray:
         first = buf[0][0]
@@ -958,8 +962,11 @@ def scan_file(
         nonlocal next_checkpoint_frame
         if partial_output_path is None or checkpoint_interval_frames <= 0:
             return
-        if processed_through < next_checkpoint_frame or last_candidate_frame == processed_through:
+        if processed_through < next_checkpoint_frame:
             return
+        if last_candidate_frame == processed_through:
+            return
+        pause_requested = pause_request_path is not None and pause_request_path.exists()
 
         profile_data = profiler.snapshot() if profile else None
         write_partial_checkpoint(
@@ -976,7 +983,7 @@ def scan_file(
         print(f"[{path.name}] partial progress saved: frame={processed_through} path={partial_output_path}", file=sys.stderr)
         next_checkpoint_frame = processed_through + checkpoint_interval_frames
 
-        if pause_request_path is not None and pause_request_path.exists():
+        if pause_requested:
             try:
                 pause_request_path.unlink()
             except FileNotFoundError:
