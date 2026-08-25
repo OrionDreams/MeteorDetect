@@ -143,6 +143,8 @@ class TemporalModelScratch:
         self.sigma = np.empty(frame_shape, dtype=np.float32)
         self.sigma_blur = np.empty(frame_shape, dtype=np.float32)
         self.signal_threshold = np.empty(frame_shape, dtype=np.float32)
+        # One extra buffer beyond sample_count acts as the sort network's rotating spare slot.
+        self.sortnet_pool = [np.empty(frame_shape, dtype=np.uint16) for _ in range(sample_count + 1)]
 
 
 class Profiler:
@@ -357,15 +359,50 @@ def _robust_temporal_model_median(sampled_frames: list[np.ndarray], noise_floor:
     return background.astype(np.float32, copy=False), sigma, sigma_blur, median_sigma
 
 
+def _median_axis0_sortnet_inplace(
+    slots: list[np.ndarray], spare: np.ndarray, out: np.ndarray
+) -> np.ndarray:
+    """Exact median across slots[0], via an odd-even transposition sort network.
+
+    Yields the same per-pixel order statistics as `_median_axis0_exact_inplace`
+    (same values, same casting, just reached through elementwise min/max compare-
+    exchanges instead of `np.partition`). numpy's partition kernel is not well
+    vectorized for small uint16 stacks, so this is substantially faster there;
+    it is not used for the float32 MAD stack, where `np.partition` already wins.
+    """
+    count = len(slots)
+    mid = count // 2
+    for p in range(count):
+        start = p % 2
+        for i in range(start, count - 1, 2):
+            x, y = slots[i], slots[i + 1]
+            np.minimum(x, y, out=spare)
+            np.maximum(x, y, out=y)
+            slots[i], slots[i + 1] = spare, y
+            spare = x
+    if count % 2:
+        np.copyto(out, slots[mid], casting="unsafe")
+        return out
+
+    np.copyto(out, slots[mid - 1], casting="unsafe")
+    out += slots[mid]
+    out *= 0.5
+    return out
+
+
 def _robust_temporal_model_partition(
     sampled_frames: list[np.ndarray],
     noise_floor: float,
     scratch: TemporalModelScratch,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    count = len(sampled_frames)
     for i, frame in enumerate(sampled_frames):
         scratch.stack_u16[i, ...] = frame
+        np.copyto(scratch.sortnet_pool[i], frame)
 
-    background = _median_axis0_exact_inplace(scratch.stack_u16, scratch.background)
+    slots = scratch.sortnet_pool[:count]
+    spare = scratch.sortnet_pool[count]
+    background = _median_axis0_sortnet_inplace(slots, spare, scratch.background)
     scratch.stack_f32[...] = scratch.stack_u16
     np.subtract(scratch.stack_f32, background[None, ...], out=scratch.stack_f32)
     np.abs(scratch.stack_f32, out=scratch.stack_f32)

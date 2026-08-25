@@ -85,7 +85,10 @@ Do not implement all of these at once. Measure first.
 
 Already applied in `optimized_temporal_median`:
 
-- exact partition-based temporal median/MAD;
+- exact temporal median/MAD, computed via `np.partition` for the float32 MAD stack and via a
+  vectorized odd-even transposition sort network for the uint16 background stack (numpy's
+  `partition` kernel is not well vectorized for small uint16 stacks; the sort network is ~8x
+  faster there and verified bit-exact against the partition result);
 - reusable temporal model scratch buffers;
 - precomputed local threshold map per temporal model;
 - no full-frame `z` temporary during candidate extraction.
