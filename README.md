@@ -7,6 +7,12 @@ MeteorDetect scans long video clips, finds likely meteor streaks using source-fr
 ## Quickstart
 - Install MeteorDetect from the [MeteorDetect releases page](https://github.com/OrionDreams/MeteorDetect/releases).
 - Open MeteorDetect, go to **Settings** and click on **Install Plugin** to install the DaVinci Resolve plugin.
+  - If MeteorDetect can't auto-install the Resolve plugin, see [Manually Install the plugin for DaVinci Resolve](#manually-install-the-plugin-for-davinci-resolve)
+- Open MeteorDetect and load your videos or an entire folder.
+- Click detect. MeteorDetect will now detect all the meteors and create a JSON that can be imported in DaVinci Resolve.
+- Open DaVinci Resolve and load your video clip in a timeline. Do not cut or edit the clip yet.
+- In the top menu go to **Workspace -> Scripts -> Import Meteors** and import the JSON file created by MeteorDetect.
+- Congratulations, you should now have clip markers in Resolve, one marker for each meteor event detected.
 
 For a more detailed guide, please read the next sections in this readme.
 
@@ -29,10 +35,14 @@ MeteorDetect includes a DaVinci Resolve Lua Utility script:
 ```text
 resolve_importer/Import Meteors.lua
 ```
+### Auto-Installation of the plugin for DaVinci Resolve
+- In MeteorDetect, go to the Settings page and use the Install button.
 
-Install it from the app's Settings view, or copy it into Resolve's `Fusion/Scripts/Utility` user scripts directory and restart Resolve.
+### Manually Install the plugin for DaVinci Resolve
+If for any reason, MeteorDetect can't auto-install the Resolve plugin:
+- Copy `resolve_importer/Import Meteors.lua` into Resolve's `Fusion/Scripts/Utility` directory, then restart Resolve.
 
-Then, in Resolve:
+### Usage of the Resolve plugin:
 
 1. Open the project and timeline containing the source clips.
 2. Choose **Workspace -> Scripts -> Import Meteors**.
