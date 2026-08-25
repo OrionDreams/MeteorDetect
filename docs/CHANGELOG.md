@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0
+## v0.2.1 with Detector runtime 0.6.0
 
 - Added a C# / Avalonia desktop app for loading clips and launching the Python detector.
 - Added UI progress display with processed frames, approximate fps, remaining-time countdown, candidate count and expandable auto-scrolling logs.
@@ -21,7 +21,7 @@
 - Marked `temporal_median_mad_prefilter` as experimental/not recommended after C2746 validation showed missed real meteors.
 - Optimized temporal modeling with exact partition-based median/MAD, reusable scratch buffers and precomputed local threshold maps.
 
-## 0.5.0
+## Detector runtime 0.5.0
 
 - Added `--profile` with per-stage wall-clock timings and counters.
 - Added profile data to per-file JSON records when requested.
@@ -33,19 +33,19 @@
 - Added AI/developer documentation: `AGENTS.md`, `PROJECT_NOTES.md`, `ARCHITECTURE.md`, `PERFORMANCE.md`, `TESTING.md`.
 - Known-positive 4K regression clip remains one event at frames 29–31 in both baseline and fast-prefilter development tests.
 
-## 0.4.0
+## Detector runtime  0.4.0
 
 - Reused robust temporal median/MAD model across blocks.
 - Temporally subsampled model input.
 - Cached blurred noise map.
 - Preserved faint multi-frame meteor detection with event-level validation.
 
-## 0.3.0
+## Detector runtime  0.3.0
 
 - Added per-pixel temporal noise normalization and stricter line geometry.
 - Achieved strong false-positive rejection, but performance was too slow.
 
-## 0.1–0.2
+## Detector runtime  0.1–0.2
 
 - Initial temporal/background and streak detection experiments.
 - Excessive star/foreground false positives motivated robust local-noise modeling.

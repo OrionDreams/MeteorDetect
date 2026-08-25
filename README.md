@@ -1,4 +1,4 @@
-# Resolve Meteor Detector v0.6
+# MeteorDetect
 
 CPU-first meteor detection for stationary night-sky video, with import of detections as **Pink clip markers** in DaVinci Resolve Studio.
 
@@ -14,7 +14,7 @@ Development target:
 
 The detector itself is independent of Resolve. By default, it writes one JSON file per source video, such as `C2752_meteors_20260823_142233.json`; the included Resolve importer reads that JSON and places Pink markers on matching timeline clips.
 
-## What's new in v0.6
+## What's new
 
 - Added a first-pass **Avalonia desktop UI** for loading clips, running detection, watching progress and installing the Resolve Lua importer.
 - Added UI progress reporting: progress bar, processed frame count, approximate fps, remaining-time countdown, candidate count and expandable auto-scrolling logs.
@@ -25,7 +25,7 @@ The detector itself is independent of Resolve. By default, it writes one JSON fi
 - Added `resolve_importer/README_LUA.md` with installation and usage instructions.
 - Kept the external Python importer as a developer/debug fallback.
 
-## v0.5 detector changes
+## Detector runtime v0.5 changes
 
 v0.5 is the measurement/optimization release built on the accurate v0.4 detector.
 
