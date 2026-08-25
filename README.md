@@ -8,6 +8,8 @@ MeteorDetect scans long video clips, finds likely meteor streaks using source-fr
 - Install MeteorDetect from the [MeteorDetect releases page](https://github.com/OrionDreams/MeteorDetect/releases).
 - Open MeteorDetect, go to **Settings** and click on **Install Plugin** to install the DaVinci Resolve plugin.
 
+For a more detailed guide, please read the next sections in this readme.
+
 ## Install the app
 
 Download the latest package from the [MeteorDetect releases page](https://github.com/OrionDreams/MeteorDetect/releases).
