@@ -142,9 +142,11 @@ jobs:
       - name: Create AppImage
         run: |
           appdir="artifacts/appimage/${APP_NAME}.AppDir"
-          mkdir -p "$appdir/usr/bin"
+          mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps" "$appdir/usr/share/icons/hicolor/512x512/apps"
           cp -a "artifacts/package/${APP_NAME}/." "$appdir/usr/bin/"
-          cp presentation_assets/MeteorDetect.png "$appdir/${APP_NAME}.png"
+          cp media/icons/png/MeteorDetect-256.png "$appdir/${APP_NAME}.png"
+          cp media/icons/png/MeteorDetect-256.png "$appdir/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
+          cp media/icons/png/MeteorDetect-512.png "$appdir/usr/share/icons/hicolor/512x512/apps/${APP_NAME}.png"
           cat > "$appdir/${APP_NAME}.desktop" <<EOF
           [Desktop Entry]
           Type=Application
@@ -233,7 +235,7 @@ jobs:
           cp dist/meteor-detector "$macos_dir/runtime/detector/meteor-detector"
           cp runtime-downloads/ffmpeg/ffmpeg "$macos_dir/runtime/ffmpeg/ffmpeg"
           cp runtime-downloads/ffmpeg/ffprobe "$macos_dir/runtime/ffmpeg/ffprobe"
-          cp presentation_assets/MeteorDetect.png "$resources_dir/MeteorDetect.png"
+          cp media/icons/MeteorDetect.icns "$resources_dir/MeteorDetect.icns"
           chmod +x "$macos_dir/MeteorDetect" "$macos_dir/runtime/detector/meteor-detector" "$macos_dir/runtime/ffmpeg/ffmpeg" "$macos_dir/runtime/ffmpeg/ffprobe"
           cat > "$app_bundle/Contents/Info.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
@@ -247,6 +249,8 @@ jobs:
             <key>CFBundleName</key>
             <string>MeteorDetect</string>
             <key>CFBundleDisplayName</key>
+            <string>MeteorDetect</string>
+            <key>CFBundleIconFile</key>
             <string>MeteorDetect</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>

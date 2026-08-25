@@ -9,6 +9,8 @@
 - Packaged builds prefer a bundled `runtime/detector/meteor-detector` executable, while development builds continue to use `python -m meteor_detector.cli`.
 - Release packages include bundled static `ffmpeg` and `ffprobe` binaries under `runtime/ffmpeg`.
 - Set the desktop executable assembly name to `MeteorDetect` for release artifacts.
+- Added tracked app icon assets for Windows, Linux and macOS release packages.
+- Replaced the desktop app header letter badge with the MeteorDetect logo.
 
 ## v0.2.1 with Detector runtime 0.6.0
 

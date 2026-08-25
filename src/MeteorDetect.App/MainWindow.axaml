@@ -9,6 +9,7 @@
         x:Name="Root"
         x:DataType="vm:MainWindowViewModel"
         Title="MeteorDetect"
+        Icon="/Assets/MeteorDetect.png"
         Width="1280"
         Height="780"
         MinWidth="900"
@@ -164,8 +165,8 @@
 
         <Border Padding="22,16" Background="#121821">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
-                <Border Width="38" Height="38" CornerRadius="8" Background="{StaticResource AccentBrush}" VerticalAlignment="Center">
-                    <TextBlock Text="M" Foreground="#111217" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Border Width="38" Height="38" CornerRadius="8" Background="#090B10" VerticalAlignment="Center" ClipToBounds="True">
+                    <Image Source="/Assets/MeteorDetect.png" Width="38" Height="38" Stretch="Uniform"/>
                 </Border>
                 <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold"/>
