@@ -6,7 +6,15 @@ using System.Runtime.InteropServices;
 
 namespace MeteorDetect.App;
 
-public sealed record DetectorRuntime(string RepositoryRoot, string DetectScript, string ResolveImporterScript, string PythonExecutable);
+public sealed record DetectorRuntime(
+    string RepositoryRoot,
+    string DetectScript,
+    string ResolveImporterScript,
+    string PythonExecutable,
+    string? DetectorExecutable)
+{
+    public bool UsesBundledDetectorExecutable => !string.IsNullOrWhiteSpace(DetectorExecutable);
+}
 
 public static class RuntimePaths
 {
@@ -20,7 +28,8 @@ public static class RuntimePaths
             root,
             "meteor_detector.cli",
             Path.Combine(root, "resolve_importer", "Import Meteors.lua"),
-            python);
+            python,
+            FindDetectorExecutable(root));
     }
 
     public static IEnumerable<string> ProbeResolveUtilityDirectories()
@@ -108,6 +117,15 @@ public static class RuntimePaths
         }
 
         return RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "python" : "python3";
+    }
+
+    private static string? FindDetectorExecutable(string repositoryRoot)
+    {
+        var executableName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? "meteor-detector.exe"
+            : "meteor-detector";
+        var candidate = Path.Combine(repositoryRoot, "runtime", "detector", executableName);
+        return File.Exists(candidate) ? candidate : null;
     }
 
     private static IEnumerable<string> BundledPythonCandidates(string repositoryRoot)

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Added a GitHub Actions release workflow for tag-triggered packaging.
+- Release builds now produce Windows x64 `.zip`, Linux x64 `.tar.gz`, Linux x64 `.AppImage`, and macOS `.dmg` artifacts for Apple Silicon and Intel.
+- Manual `workflow_dispatch` runs build downloadable artifacts without requiring a tag.
+- Tag pushes matching `v*` attach the packaged artifacts to the GitHub Release.
+- Packaged builds prefer a bundled `runtime/detector/meteor-detector` executable, while development builds continue to use `python -m meteor_detector.cli`.
+- Release packages include bundled static `ffmpeg` and `ffprobe` binaries under `runtime/ffmpeg`.
+- Set the desktop executable assembly name to `MeteorDetect` for release artifacts.
+
 ## v0.2.1 with Detector runtime 0.6.0
 
 - Added a C# / Avalonia desktop app for loading clips and launching the Python detector.

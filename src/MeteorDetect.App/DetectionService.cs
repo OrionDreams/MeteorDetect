@@ -97,16 +97,17 @@ public sealed class DetectionService
             _pauseRequestPath = pauseRequestPath;
             TryDeleteFile(pauseRequestPath);
             log?.Invoke($"Pause request file: {pauseRequestPath}");
-            var args = new List<string>
-            {
-                "-m",
-                _runtime.DetectScript,
-                clipPath,
-                "-o",
-                clipOutput,
-                "--no-diagnostics",
-                "--profile"
-            };
+            var executable = _runtime.UsesBundledDetectorExecutable
+                ? _runtime.DetectorExecutable!
+                : _runtime.PythonExecutable;
+            var args = _runtime.UsesBundledDetectorExecutable
+                ? new List<string>()
+                : new List<string> { "-m", _runtime.DetectScript };
+            args.Add(clipPath);
+            args.Add("-o");
+            args.Add(clipOutput);
+            args.Add("--no-diagnostics");
+            args.Add("--profile");
 
             args.Add("--detector-algorithm");
             args.Add(algorithm.Id);
@@ -130,7 +131,7 @@ public sealed class DetectionService
 
             log?.Invoke($"Scanning {clipPath}");
             var result = await ProcessRunner.RunAsync(
-                _runtime.PythonExecutable,
+                executable,
                 args,
                 _runtime.RepositoryRoot,
                 BuildProcessEnvironment(),
