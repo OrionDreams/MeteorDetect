@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.3 Beta with Detector runtime 0.6.0
 
 - Added a GitHub Actions release workflow for tag-triggered packaging.
 - Release builds now produce Windows x64 `.zip`, Linux x64 `.tar.gz`, Linux x64 `.AppImage`, and macOS `.dmg` artifacts for Apple Silicon and Intel.
