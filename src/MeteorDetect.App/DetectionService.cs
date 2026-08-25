@@ -62,6 +62,7 @@ public sealed class DetectionService
         string detectorAlgorithm,
         string detectorDecoder,
         bool ignoreCameraBumps,
+        bool outputDiagnosticImages,
         bool writeCombinedJson,
         Action<string, string>? updateClipStatus,
         Action<string>? log,
@@ -106,7 +107,10 @@ public sealed class DetectionService
             args.Add(clipPath);
             args.Add("-o");
             args.Add(clipOutput);
-            args.Add("--no-diagnostics");
+            if (!outputDiagnosticImages)
+            {
+                args.Add("--no-diagnostics");
+            }
             args.Add("--profile");
 
             args.Add("--detector-algorithm");

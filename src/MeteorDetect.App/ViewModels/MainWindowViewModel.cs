@@ -72,6 +72,9 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _ignoreCameraBumps;
 
     [ObservableProperty]
+    private bool _outputDiagnosticImages;
+
+    [ObservableProperty]
     private DetectorAlgorithmOption _selectedDetectorAlgorithm = DetectorAlgorithms.All[0];
 
     [ObservableProperty]
@@ -231,6 +234,7 @@ public partial class MainWindowViewModel : ObservableObject
                 SelectedDetectorAlgorithm.Id,
                 SelectedDetectorDecoder.Id,
                 IgnoreCameraBumps,
+                OutputDiagnosticImages,
                 WriteCombinedJson,
                 UpdateClipStatus,
                 AppendLogThreadSafe);
@@ -471,6 +475,7 @@ public partial class MainWindowViewModel : ObservableObject
         SelectedDetectorDecoder = DetectorDecoders.Resolve(_settings.DetectorDecoder);
         WriteCombinedJson = _settings.WriteCombinedJson;
         IgnoreCameraBumps = _settings.IgnoreCameraBumps;
+        OutputDiagnosticImages = _settings.OutputDiagnosticImages;
         await LoadHistoryAsync();
         await SettingsStore.SaveAsync(_settings);
         RefreshResolvePluginStatus();
@@ -606,6 +611,12 @@ public partial class MainWindowViewModel : ObservableObject
     partial void OnIgnoreCameraBumpsChanged(bool value)
     {
         _settings.IgnoreCameraBumps = value;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnOutputDiagnosticImagesChanged(bool value)
+    {
+        _settings.OutputDiagnosticImages = value;
         _ = SettingsStore.SaveAsync(_settings);
     }
 

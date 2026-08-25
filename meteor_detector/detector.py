@@ -859,7 +859,7 @@ def scan_file(
         apply_detector_algorithm(cfg)
     info = probe_video(path)
     sw, sh = _scan_dimensions(info["width"], info["height"], int(cfg["scan_width"]))
-    diag_dir = out_dir / "diagnostics" / path.stem
+    diag_dir = path.parent / "meteordetect_diagnostics" / path.stem
     if cfg.get("diagnostic_jpegs", True):
         diag_dir.mkdir(parents=True, exist_ok=True)
 

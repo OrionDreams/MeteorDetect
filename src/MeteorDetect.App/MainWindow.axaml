@@ -193,6 +193,9 @@
                             <CheckBox Content="Ignore camera bumps"
                                       IsChecked="{Binding IgnoreCameraBumps}"
                                       ToolTip.Tip="Use this only if the camera was moved while recording."/>
+                            <CheckBox Content="Output diagnostic images"
+                                      IsChecked="{Binding OutputDiagnosticImages}"
+                                      ToolTip.Tip="Write candidate frame JPEGs next to each source video."/>
                         </StackPanel>
                     </Grid>
 
