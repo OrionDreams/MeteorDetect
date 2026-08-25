@@ -2,345 +2,130 @@
 
 CPU-first meteor detection for stationary night-sky video, with import of detections as **Pink clip markers** in DaVinci Resolve Studio.
 
-Development target:
+MeteorDetect scans long video clips, finds likely meteor streaks using source-frame timing, writes detector JSON files, and helps bring those detections into the **DaVinci Resolve** video editor as clip markers.
 
-- DaVinci Resolve Studio 21.0.4 Build 5
-- Linux / CachyOS
-- Sony A7 IV, 3840×2160 H.264 High 4:2:2 10-bit
-- exactly 24000/1001 fps
-- S-Log3 / S-Gamut3.Cine
-- stationary tripod
-- long shutter times where one camera exposure can be represented by multiple encoded video frames
+## Install the app
 
-The detector itself is independent of Resolve. By default, it writes one JSON file per source video, such as `C2752_meteors_20260823_142233.json`; the included Resolve importer reads that JSON and places Pink markers on matching timeline clips.
+Download the latest package from the [MeteorDetect releases page](https://github.com/OrionDreams/MeteorDetect/releases).
 
-## What's new
+Choose the package for your operating system:
 
-- Added a first-pass **Avalonia desktop UI** for loading clips, running detection, watching progress and installing the Resolve Lua importer.
-- Added UI progress reporting: progress bar, processed frame count, approximate fps, remaining-time countdown, candidate count and expandable auto-scrolling logs.
-- Added processing history for successful clips.
-- Made per-clip JSON the default output mode for both CLI and UI; combined multi-clip JSON remains available as an option.
-- Added a self-contained **Lua importer** that runs from Resolve's Workspace → Scripts menu.
-- Added an in-Resolve JSON file-selection workflow with non-interactive fallbacks.
-- Added `resolve_importer/README_LUA.md` with installation and usage instructions.
-- Kept the external Python importer as a developer/debug fallback.
+- Windows: download the Windows x64 `.zip`, extract it, and run `MeteorDetect.exe`.
+- Linux: download the Linux x64 `.AppImage`, make it executable if needed, and run it. A `.tar.gz` package is also provided as a fallback.
+- macOS: download the `.dmg` for your Mac architecture, open it, and run MeteorDetect. Because early builds are unsigned, macOS may require right-clicking the app and choosing **Open** the first time.
 
-## Detector runtime v0.5 changes
+Packaged releases are intended to include the app, detector runtime, FFmpeg/ffprobe, and Resolve importer files. To build or run from source, see [DEVELOPERS.md](DEVELOPERS.md).
 
-v0.5 is the measurement/optimization release built on the accurate v0.4 detector.
+## Use the Resolve plugin
 
-### 1. Profiling mode
-
-Run:
-
-```bash
-bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile
-```
-
-The detector prints and stores timing for:
-
-- FFmpeg decode / pipe waiting
-- optional fast prefilter
-- temporal median + MAD model
-- per-frame residual / blur / threshold
-- morphology + connected-components
-- component geometry
-- diagnostic JPEG writing
-- event grouping
-
-It also records counters such as temporal models built, deeply analyzed frames, empty masks, candidate frames and prefilter block pass/reject counts.
-
-The profile is included under each file's `profile` object in the detector JSON output.
-
-### 2. Detector algorithms
-
-The detector has named algorithm presets:
+MeteorDetect includes a DaVinci Resolve Lua Utility script:
 
 ```text
-optimized_temporal_median       current default, optimized exact temporal median model
-temporal_median_mad             original accurate baseline, slowest
-temporal_median_mad_prefilter   original baseline plus experimental Fast Prefilter
+resolve_importer/Import Meteors.lua
 ```
 
-`optimized_temporal_median` is the normal choice. It keeps the same recall-focused detector behavior as the original median/MAD path, but computes the temporal model with a faster exact implementation and reusable scratch buffers.
+Install it from the app's Settings view, or copy it into Resolve's `Fusion/Scripts/Utility` user scripts directory and restart Resolve.
 
-If the optimized default misses a meteor on a real clip, rerun that clip with `temporal_median_mad`. That older path is slower, but it is useful as a conservative fallback and comparison baseline.
+Then, in Resolve:
 
-`temporal_median_mad_prefilter` is not recommended for normal processing. On a longer known-positive clip (`C2746.MP4`), the Fast Prefilter missed real meteors. Keep it as an experimental profiling option only.
+1. Open the project and timeline containing the source clips.
+2. Choose **Workspace -> Scripts -> Import Meteors**.
+3. Select the JSON file produced by MeteorDetect.
+4. The script adds **Pink markers to the matching clips themselves**.
 
-Select an algorithm from the desktop Settings view, or from the CLI:
+The Resolve script is self-contained. It does not need Python, OpenCV, FFmpeg, or the detector virtual environment. Re-importing the same JSON is designed not to duplicate existing meteor markers.
 
-```bash
-bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile --detector-algorithm optimized_temporal_median
-```
+See [resolve_importer/README_LUA.md](resolve_importer/README_LUA.md) for script directory notes and file-picker fallbacks.
 
-The old `--fast-prefilter` flag remains as a shortcut for `--detector-algorithm temporal_median_mad_prefilter`.
-The previous `fastdetect_experimental` id remains accepted as a compatibility alias for `optimized_temporal_median`.
+## Use the app GUI
 
-### 3. Experimental CPU-only fast prefilter
+The usual workflow is:
 
-Enable it with:
+1. Open MeteorDetect.
+2. Add one or more source clips, or open a directory containing video clips.
+3. Click **Detect**.
+4. Wait for processing to finish.
+5. In Resolve, run **Workspace -> Scripts -> Import Meteors** and select the generated JSON.
 
-```bash
-bin/detect-meteors.sh VIDEO.MP4 --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
-```
-
-This is **not** a second meteor classifier. It is a deliberately permissive cheap test whose only purpose is to reject blocks that are obviously quiet before v0.4's expensive per-pixel temporal median/MAD model runs.
-
-At roughly 480×270, it compares target frames against two distant temporal references. It keeps only positive signal that is brighter than both references, accumulates evidence across the block, and performs a permissive elongated-component test. This largely cancels stationary stars, foreground and monotonic twilight changes without doing a full robust noise model.
-
-Blocks near a possible streak receive a temporal safety margin (`prefilter_margin_frames`) so a meteor near an 8-frame block boundary can cause both neighboring blocks to be analyzed deeply.
-
-The prefilter is **off by default** and not recommended for normal processing because longer validation found missed real meteors.
-
-## Known-positive regression clip
-
-The supplied original 4K sample:
+By default, MeteorDetect writes one timestamped JSON file next to each processed clip, with a name like:
 
 ```text
-C2738-00.01.58.243-00.02.00.996.MP4
+C2752_meteors_20260823_142233.json
 ```
 
-contains one meteor. The optimized default and the original temporal median/MAD path should find one event spanning source frames **29–31**.
+Processed clips appear in the app with their detected meteor count. The History view keeps successful runs visible for later reference.
 
-This regression matters because the meteor is only moderately significant in individual encoded frames but forms a coherent elongated event across several frames.
+For output modes, detector settings, decoder choices, and how selection affects batch processing, see [GUI advanced use](#gui-advanced-use).
 
-## Requirements
+## Use the command line
 
-```bash
-bin/install.sh
-pip install -r requirements.txt
-```
-
-You also need `ffmpeg` and `ffprobe` available on `PATH`.
-
-`bin/install.sh` changes to the repository root, creates `.venv` if needed, and starts an activated shell. It uses `.venv/bin/activate.fish` when your login shell is Fish, otherwise it uses the standard POSIX activation script.
-
-## Basic usage
-
-Single file:
+For a single clip:
 
 ```bash
 bin/detect-meteors.sh /path/to/C2752.MP4
 ```
 
-Directory:
+For a directory:
 
 ```bash
 bin/detect-meteors.sh /path/to/video-directory
 ```
 
-By default, `C2752.MP4` writes a timestamped file named like `C2752_meteors_20260823_142233.json`. Directory scans write one JSON per clip. Use `-o` with a single clip when you want to force a specific output path.
+By default, each processed clip gets its own timestamped JSON output. These JSON files can be imported with the Resolve plugin.
 
-To keep the legacy behavior where multiple clips are written into one JSON:
+For detector algorithms, decoder options, profiling, combined JSON output, and direct Python module usage, see [command-line advanced use](#command-line-advanced-use).
 
-```bash
-bin/detect-meteors.sh /path/to/video-directory --output-mode combined -o meteors.json
-```
+## App and detector architecture
 
-Disable JPEG diagnostics for speed measurements:
+MeteorDetect is a C# / Avalonia desktop app with a Python detection engine.
 
-```bash
-bin/detect-meteors.sh C2752.MP4 --no-diagnostics
-```
+The app handles user interaction, file selection, progress display, history, settings, packaging integration, and Resolve plugin installation. The Python detector remains the source of truth for meteor analysis and can also run independently from the command line.
 
-Profile the optimized default detector:
+Packaged builds prefer a bundled detector executable and bundled FFmpeg tools. Source builds use the local Python environment when a bundled runtime is not present.
 
-```bash
-bin/detect-meteors.sh C2752.MP4 -o optimized.json --no-diagnostics --profile
-```
+## Pause and resume
 
-Run the original slower baseline if the optimized default misses a meteor:
+The desktop app can pause detection, but pause is mainly intended for unavoidable interruptions and crash or power-loss recovery on very large files.
 
-```bash
-bin/detect-meteors.sh C2752.MP4 -o original-baseline.json --no-diagnostics --profile --detector-algorithm temporal_median_mad
-```
+While detection is running, MeteorDetect writes a resumable partial checkpoint every 1000 analyzed frames. If the machine loses power or the app/system crashes, reopening the same clip can offer **Resume Detection** from the last saved checkpoint.
 
-Run the experimental Fast Prefilter path only for comparison/profiling:
+When you click **Pause**, detection does not stop immediately. The detector checks for pause requests at checkpoint boundaries, writes a partial JSON, and exits cleanly. Resume re-analyzes an overlap before the saved frame so events near the checkpoint are not split incorrectly.
 
-```bash
-bin/detect-meteors.sh C2752.MP4 -o fast.json --no-diagnostics --profile --detector-algorithm temporal_median_mad_prefilter
-```
-
-For headless integrations, call the Python module directly:
-
-```bash
-.venv/bin/python -m meteor_detector.cli C2752.MP4 \
-  -o C2752_meteors.json \
-  --no-diagnostics \
-  --detector-algorithm optimized_temporal_median
-```
-
-Use a custom config:
-
-```bash
-cp config.example.json config.json
-bin/detect-meteors.sh C2752.MP4 --config config.json
-```
-
-If an older config enables `fast_prefilter` and you want to force the normal optimized path:
-
-```bash
-bin/detect-meteors.sh C2752.MP4 --config config.json --no-fast-prefilter
-```
-
-The default decoder is FFmpeg, which preserves the detector's best-tested 16-bit grayscale path:
-
-```bash
-bin/detect-meteors.sh C2752.MP4 --decoder ffmpeg
-```
-
-An experimental OpenCV decoder is also available for speed comparisons. It commonly receives 8-bit frames from OpenCV, then converts them to the detector's internal `uint16` grayscale format:
-
-```bash
-bin/detect-meteors.sh C2752.MP4 --decoder opencv
-```
-
-The detector prints coarse progress to stderr every 100 decoded frames and once more at completion, for example:
-
-```text
-[C2752.MP4] frame 1200/25000, candidates=3
-```
-
-The desktop UI parses these messages for its progress display.
-
-## Desktop UI
-
-Run the development UI:
-
-```bash
-tools/dev-app.sh
-```
-
-The app is a C# / Avalonia shell around the existing Python detector. It currently supports:
-
-- opening a directory of `.mp4`, `.mov` and `.m4v` clips;
-- opening one or more source clips;
-- showing clip duration, status, detected event count and whether an existing meteor JSON is already associated;
-- running the Python detector with `--no-diagnostics --profile`;
-- detector algorithm and decoder selection from Settings;
-- per-clip timestamped JSON output by default, written next to each source clip;
-- optional combined JSON output for multiple clips;
-- progress bar, processed frames, approximate speed, remaining-time estimate and expandable logs;
-- history of successful detection runs;
-- detecting or choosing the Resolve `Fusion/Scripts/Utility` directory and installing `Import Meteors.lua`.
-
-Directory clips are listed alphabetically. The app scans the same directory for completed detector JSON files whose names contain `_meteors_`; when more than one JSON matches a clip, the newest JSON is used. Processed clips are shown with a magenta border and their meteor count is shown in a magenta badge.
-
-If no clip is selected, `Detect` starts at the first unprocessed clip in the visible list and continues through the remaining unprocessed clips. Select one or more clips to process only that selection, in visible-list order. Use Ctrl+Click on Linux/Windows, or Command+Click on macOS, to toggle individual clips. Use Shift+Click to select a range. Selected clips are highlighted with an orange border.
-
-### Pause and resume
-
-The desktop app can pause detection, but this first version is intended mainly for cases where pausing is unavoidable, or where a power outage or system crash interrupts detection on a very large file.
-
-While detection is running, the app writes a resumable partial checkpoint every 1000 analyzed frames. It does this even without user intervention, so if the machine loses power or the app/system crashes, reopening the same clip can offer `Resume Detection` from the last saved checkpoint.
-
-When the user clicks `Pause`, detection does not stop immediately. The detector checks for pause requests at partial-checkpoint boundaries, currently every 1000 analyzed frames, then writes a partial JSON and exits cleanly. Resume re-analyzes an overlap before the saved frame, so explicit pause can stop at the checkpoint even if that frame has candidates.
-
-Resume is not a fast seek in this version. The detector still starts decoding from the beginning of the clip, then skips expensive detection work until it reaches the saved checkpoint area. In practice this has only been about 20%-30% faster than running detection from scratch, so it is best treated as crash/power-loss recovery rather than a normal performance optimization.
-
-Development builds use a bundled runtime if present under `runtime/python` and `runtime/ffmpeg`; otherwise they fall back to `.venv` and then the platform Python executable. Public releases should bundle their own runtime.
+Resume is not a fast seek in this version. The detector still decodes from the beginning of the clip, then skips expensive detection work until it reaches the checkpoint area.
 
 ## How the main detector works
 
-At a 960-pixel scan width, the default `Optimized Temporal Median` path:
+MeteorDetect is built around a stationary-camera assumption. Stars, terrain, skyline, and sky glow are usually stable over nearby frames. Meteors are temporary bright streaks.
 
-1. decodes the 10-bit video to `gray16le` using FFmpeg;
-2. samples a symmetric 25-frame temporal window;
-3. builds a robust per-pixel median background and MAD-derived local noise map using the optimized exact temporal model;
-4. reuses that model over an 8-frame block;
-5. looks for positive transient residuals relative to local noise;
-6. keeps narrow elongated components;
-7. groups compatible candidates across nearby frames into meteor events;
-8. allows the same meteor exposure to repeat across consecutive encoded frames.
+The default detector decodes video with FFmpeg, scales frames to a working scan width, and builds a robust temporal background model. For each pixel, it estimates normal brightness from nearby frames using a median, then estimates local noise using MAD, or Median Absolute Deviation.
 
-A single-frame event can still be accepted, but it must satisfy stronger geometry and signal requirements.
-
-### High-level algorithm overview
-
-The detector is built around the stationary-camera assumption. Most of the image should be stable over nearby frames: stars, terrain, skyline and sky glow usually stay in the same place. Meteors are different because they are temporary bright streaks.
-
-For each model block, the detector looks at a 25-frame window around an anchor frame and samples every other frame, giving 13 sampled frames. For every pixel location, it asks: "What is this pixel's normal brightness over nearby time?"
-
-Example brightness values for one pixel over the sampled frames:
+A temporary spike does not become part of the background:
 
 ```text
-[100, 101, 99, 100, 102, 100, 850]
+sample values:     [100, 101, 99, 100, 102, 100, 850]
+median background: 100
 ```
 
-The `850` could be a meteor, glint or other temporary spike. The median is `100`, so the spike does not become part of the background. That is why the detector uses a median instead of an average.
+After subtracting the background, the detector keeps pixels that are bright compared with their local noise, cleans them into connected shapes, filters for narrow elongated components, and groups compatible candidates across nearby source frames.
 
-MAD means Median Absolute Deviation. After finding the median brightness, the detector measures how far each sampled value is from that median:
+Long shutter footage matters: one physical meteor exposure may appear in two or more encoded frames, so MeteorDetect does not require motion between every adjacent frame.
+
+## High-level algorithm overview
 
 ```text
-median brightness: 100
-absolute deviations: [0, 1, 1, 0, 2, 0, 750]
-MAD: 1
+source video
+  -> FFmpeg decode and grayscale scaling
+  -> temporal median background model
+  -> MAD-derived local noise estimate
+  -> positive transient residuals
+  -> morphology and connected components
+  -> line geometry filtering
+  -> cross-frame event grouping
+  -> per-clip meteor JSON
+  -> Resolve Pink clip markers
 ```
 
-MAD gives a robust estimate of local pixel noise. The detector converts that to a sigma-like value:
-
-```text
-sigma = max(noise_floor, 1.4826 * MAD)
-```
-
-Then each target frame is compared with the background. A pixel only survives if it is bright in absolute terms and bright compared with its own local noise. Surviving pixels are cleaned up into connected shapes, and only narrow elongated shapes can become meteor candidates. Nearby compatible candidates are grouped into final meteor events using source frame numbers.
-
-The original `Temporal Median / MAD` algorithm and the default `Optimized Temporal Median` algorithm use the same detection idea. The optimized version uses a faster exact way to compute the median/MAD model and avoids repeated large temporary allocations.
-
-## Fast prefilter configuration
-
-The Fast Prefilter path is not recommended for normal use. It remains available only for experiments because it missed real meteors on longer validation footage.
-
-Defaults:
-
-```json
-{
-  "fast_prefilter": false,
-  "prefilter_width": 480,
-  "prefilter_minimum_threshold": 180.0,
-  "prefilter_min_component_area": 2,
-  "prefilter_max_component_area": 900,
-  "prefilter_min_streak_length": 3.5,
-  "prefilter_min_elongation": 1.6,
-  "prefilter_max_streak_width": 10.0,
-  "prefilter_margin_frames": 8
-}
-```
-
-Treat these as **recall-first** settings. A false-positive block only wastes some CPU; a false-negative block can miss a meteor. Do not tighten the prefilter based only on speed.
-
-The first metrics to inspect are:
-
-```text
-Prefilter blocks
-Prefilter passed
-Prefilter rejected
-Deep blocks skipped
-Meteor events
-```
-
-If a long astronomical-night recording rejects almost no blocks, the prefilter is not useful enough yet. If it rejects many blocks but known meteors disappear, it is too strict.
-
-## Profiling notes
-
-`decode_wait` measures wall-clock time spent obtaining the next frame from the FFmpeg generator. It includes FFmpeg decode/scale/pipe waiting plus the Python raw-frame conversion/copy. It is intentionally an application-level measurement, not a pure FFmpeg microbenchmark.
-
-Stage percentages do not necessarily sum to 100%; orchestration, Python loop overhead, buffer management, probing, JSON writing and profiler overhead are outside the named stages.
-
-For comparable measurements always use:
-
-```bash
---no-diagnostics --profile
-```
-
-and test the exact same input file.
-
-See [PERFORMANCE.md](docs/PERFORMANCE.md) for the optimization roadmap and [TESTING.md](docs/TESTING.md) for regression guidance.
-
-## JSON timing
-
-Source frame numbers are authoritative. Frame rate is stored exactly as a rational:
+Authoritative timing uses integer source frame numbers, not rounded seconds. The reference footage is `24000/1001` fps, and detector JSON stores frame rate as a rational pair:
 
 ```json
 {
@@ -362,59 +147,99 @@ Example event:
 }
 ```
 
-## Resolve importer
+## GUI advanced use
 
-For normal end users, use the **in-Resolve Lua importer**. It does not require an external Python environment.
+Open a directory to list `.mp4`, `.mov`, and `.m4v` clips. Directory clips are listed alphabetically. The app scans the same directory for completed detector JSON files whose names contain `_meteors_`; when more than one JSON matches a clip, the newest JSON is used.
 
-### Install the Lua importer
+If no clip is selected, **Detect** starts at the first unprocessed visible clip and continues through the remaining unprocessed clips. Select one or more clips to process only that selection, in visible-list order. Use Ctrl+Click on Linux/Windows, Command+Click on macOS, or Shift+Click for a range.
 
-Copy:
+Settings currently include detector algorithm, decoder, Resolve script directory, and output mode. Per-clip timestamped JSON is the default. Combined JSON output remains available for workflows that need one result file for multiple clips.
 
-```text
-resolve_importer/Import Meteors.lua
-```
+## Command-line advanced use
 
-into Resolve's `Fusion/Scripts/Utility` user scripts directory. On the current Linux development target, the usual per-user path is:
-
-```text
-~/.local/share/DaVinciResolve/Fusion/Scripts/Utility/
-```
-
-Create the directory if necessary, copy the file there, and **restart DaVinci Resolve**. Resolve/Fusion supports interactive Utility scripts from its scripts directory, and Lua is embedded in the application.
-
-Then:
-
-1. Open the project and desired timeline.
-2. Choose **Workspace → Scripts → Import Meteors**.
-3. Select the detector's JSON output, such as `C2752_meteors_20260823_142233.json`.
-4. The script adds **Pink markers to the matching clips themselves**.
-
-The Lua file is self-contained, including its JSON reader. It does not need Python, OpenCV, FFmpeg, Distrobox, or the detector virtual environment. Re-importing the same JSON is designed not to duplicate existing meteor markers.
-
-See [resolve_importer/README_LUA.md](resolve_importer/README_LUA.md) for details and file-picker fallbacks.
-
-### External Python importer (developer/debug fallback)
-
-The previous Python importer is still included for debugging. A typical Linux external scripting environment is:
+Disable JPEG diagnostics and record profiling:
 
 ```bash
-export RESOLVE_SCRIPT_API=/opt/resolve/Developer/Scripting
-export RESOLVE_SCRIPT_LIB=/opt/resolve/libs/Fusion/fusionscript.so
-export PYTHONPATH="$PYTHONPATH:$RESOLVE_SCRIPT_API/Modules"
-python resolve_importer/import_meteors.py meteors.json
+bin/detect-meteors.sh C2752.MP4 --no-diagnostics --profile
 ```
 
+Run the default optimized detector explicitly:
 
-## AI-assisted development
+```bash
+bin/detect-meteors.sh C2752.MP4 --detector-algorithm optimized_temporal_median
+```
 
-This package deliberately includes repository context for Codex and other coding agents:
+Run the original slower baseline if you suspect the optimized detector missed a real meteor:
 
-- [AGENTS.md](AGENTS.md) - coding-agent instructions and invariants
-- [PROJECT_NOTES.md](docs/PROJECT_NOTES.md) - project history, user requirements and known findings
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - current data flow and module responsibilities
-- [CSHARP-DOTNET-AVALONIA-MVVM.md](docs/CSHARP-DOTNET-AVALONIA-MVVM.md) - C# .NET and Avalonia guidance
-- [PERFORMANCE.md](docs/PERFORMANCE.md) - profiling interpretation and optimization candidates
+```bash
+bin/detect-meteors.sh C2752.MP4 --detector-algorithm temporal_median_mad
+```
+
+Run the experimental Fast Prefilter path only for comparison or profiling:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 --detector-algorithm temporal_median_mad_prefilter
+```
+
+Use a combined JSON output for multiple clips:
+
+```bash
+bin/detect-meteors.sh /path/to/video-directory --output-mode combined -o meteors.json
+```
+
+Use a custom config:
+
+```bash
+cp config.example.json config.json
+bin/detect-meteors.sh C2752.MP4 --config config.json
+```
+
+The default decoder is FFmpeg, which preserves the best-tested 16-bit grayscale path:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 --decoder ffmpeg
+```
+
+An experimental OpenCV decoder is available for speed comparisons:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 --decoder opencv
+```
+
+For headless integrations, call the Python module directly:
+
+```bash
+.venv/bin/python -m meteor_detector.cli C2752.MP4 \
+  -o C2752_meteors.json \
+  --no-diagnostics \
+  --detector-algorithm optimized_temporal_median
+```
+
+The detector prints coarse progress to stderr every 100 decoded frames and once more at completion, for example:
+
+```text
+[C2752.MP4] frame 1200/25000, candidates=3
+```
+
+## Detector tuning and profiling
+
+The default `optimized_temporal_median` detector is the normal choice. It uses the same recall-focused temporal median/MAD detection idea as the original baseline, but computes the temporal model faster and avoids repeated large temporary allocations.
+
+The `temporal_median_mad_prefilter` path is not recommended for routine use. It remains available for experiments because longer validation found missed real meteors. Treat prefilter settings as recall-first: a false-positive block wastes some CPU, while a false-negative block can miss a meteor.
+
+For comparable performance measurements, use:
+
+```bash
+--no-diagnostics --profile
+```
+
+See [PERFORMANCE.md](docs/PERFORMANCE.md) for optimization notes and [TESTING.md](docs/TESTING.md) for regression guidance.
+
+## More documentation
+
+- [DEVELOPERS.md](DEVELOPERS.md) - source setup, development target, and packaging notes
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) - data flow and module responsibilities
 - [TESTING.md](docs/TESTING.md) - regression strategy and known-positive tests
+- [PERFORMANCE.md](docs/PERFORMANCE.md) - profiling interpretation and optimization candidates
 - [CHANGELOG.md](docs/CHANGELOG.md) - version history
-
-Agents should read `AGENTS.md` and `docs/PROJECT_NOTES.md` before changing detector logic.
+- [PROJECT_NOTES.md](docs/PROJECT_NOTES.md) - project history, requirements, and known findings
