@@ -4,6 +4,10 @@ CPU-first meteor detection for stationary night-sky video, with import of detect
 
 MeteorDetect scans long video clips, finds likely meteor streaks using source-frame timing, writes detector JSON files, and helps bring those detections into the **DaVinci Resolve** video editor as clip markers.
 
+## Quickstart
+- Install MeteorDetect from the [MeteorDetect releases page](https://github.com/OrionDreams/MeteorDetect/releases).
+- Open MeteorDetect, go to **Settings** and click on **Install Plugin** to install the DaVinci Resolve plugin.
+
 ## Install the app
 
 Download the latest package from the [MeteorDetect releases page](https://github.com/OrionDreams/MeteorDetect/releases).
