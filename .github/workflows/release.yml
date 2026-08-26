@@ -330,7 +330,7 @@ jobs:
           base="https://github.com/OrionDreams/ffmpeg-apple-silicon/releases/download/${MAC_ARM_FFMPEG_RELEASE}"
 
           curl -fL --retry 3 \
-            -o runtime-downloads/ffmpeg.tar.xz \
+            -o "runtime-downloads/${MAC_ARM_FFMPEG_ARCHIVE}" \
             "${base}/${MAC_ARM_FFMPEG_ARCHIVE}"
 
           curl -fL --retry 3 \
@@ -339,10 +339,10 @@ jobs:
 
           (
             cd runtime-downloads
-            grep "${MAC_ARM_FFMPEG_ARCHIVE}" SHA256SUMS.txt | shasum -a 256 -c -
+            grep -F "${MAC_ARM_FFMPEG_ARCHIVE}" SHA256SUMS.txt | shasum -a 256 -c -
           )
 
-          tar -xJf runtime-downloads/ffmpeg.tar.xz -C runtime-downloads/ffmpeg-src
+          tar -xJf "runtime-downloads/${MAC_ARM_FFMPEG_ARCHIVE}" -C runtime-downloads/ffmpeg-src
 
           cp "$(find runtime-downloads/ffmpeg-src -type f -name ffmpeg | head -n 1)" \
             runtime-downloads/ffmpeg/ffmpeg
