@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.2.4 Beta with Detector runtime 0.6.0
+## v0.2.4 Beta with Detector runtime 0.7.0
 
 - Added explicit app and detector-runtime version sources: the desktop app now uses .NET
   project metadata for `v0.2.3`, while the Python detector runtime reports `0.6.0`.
@@ -8,6 +8,8 @@
 - Improved temporal background median performance with a sort-network implementation for
   small sampled-frame stacks.
 - Added a Diagnostic Level setting to the desktop app and detector CLI.
+- Added a startup update checker that looks for newer GitHub Releases and shows a clickable
+  notification in the desktop app header without blocking app startup.
 - Added camera-class tuning profiles with `sony_mirrorless` as the default and `noisy_camera`
   as a stricter profile for noisy or heavily processed night video.
 - Added the Camera Class selector to the desktop app and moved it to the top bar for easier
@@ -19,6 +21,8 @@
 - Fixed progress/frame-count estimates for videos whose `avg_frame_rate` metadata disagrees
   with the nominal stream frame rate, using packet counts as a fallback when frame count
   metadata is absent.
+- Improved Settings page layout so overflowing settings remain reachable with an automatic
+  scrollbar instead of being clipped by shorter windows.
 
 ## v0.2.3 Beta with Detector runtime 0.6.0
 
