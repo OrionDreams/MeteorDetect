@@ -170,16 +170,28 @@ class PauseRequested(Exception):
 
 class TemporalModelScratch:
     def __init__(self, sample_count: int, height: int, width: int) -> None:
-        shape = (sample_count, height, width)
         frame_shape = (height, width)
-        self.stack_u16 = np.empty(shape, dtype=np.uint16)
-        self.stack_f32 = np.empty(shape, dtype=np.float32)
         self.background = np.empty(frame_shape, dtype=np.float32)
         self.sigma = np.empty(frame_shape, dtype=np.float32)
         self.sigma_blur = np.empty(frame_shape, dtype=np.float32)
         self.signal_threshold = np.empty(frame_shape, dtype=np.float32)
         # One extra buffer beyond sample_count acts as the sort network's rotating spare slot.
         self.sortnet_pool = [np.empty(frame_shape, dtype=np.uint16) for _ in range(sample_count + 1)]
+
+        # An odd sample count takes the middle sample as the median, so the temporal background
+        # is always an exact integer and every |frame - background| fits a uint16 unchanged. The
+        # deviation stack can then stay in uint16 and reuse the sort network, which is much
+        # faster than partitioning a float32 stack. An even count averages the two middle
+        # samples and can land on a half-integer, so that case keeps the float32 stack.
+        self.integer_medians = sample_count % 2 == 1
+        if self.integer_medians:
+            self.background_u16 = np.empty(frame_shape, dtype=np.uint16)
+            self.deviation_pool = [np.empty(frame_shape, dtype=np.uint16) for _ in range(sample_count + 1)]
+            self.stack_f32 = None
+        else:
+            self.background_u16 = None
+            self.deviation_pool = None
+            self.stack_f32 = np.empty((sample_count, height, width), dtype=np.float32)
 
 
 class Profiler:
@@ -471,8 +483,11 @@ def _median_axis0_sortnet_inplace(
     Yields the same per-pixel order statistics as `_median_axis0_exact_inplace`
     (same values, same casting, just reached through elementwise min/max compare-
     exchanges instead of `np.partition`). numpy's partition kernel is not well
-    vectorized for small uint16 stacks, so this is substantially faster there;
-    it is not used for the float32 MAD stack, where `np.partition` already wins.
+    vectorized for small uint16 stacks, so this is substantially faster there.
+
+    It carries both the background stack and, when the sample count is odd, the
+    absolute-deviation stack behind the MAD. On a float32 stack `np.partition`
+    still wins, so an even sample count keeps that path.
     """
     count = len(slots)
     mid = count // 2
@@ -501,17 +516,28 @@ def _robust_temporal_model_partition(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     count = len(sampled_frames)
     for i, frame in enumerate(sampled_frames):
-        scratch.stack_u16[i, ...] = frame
         np.copyto(scratch.sortnet_pool[i], frame)
 
     slots = scratch.sortnet_pool[:count]
     spare = scratch.sortnet_pool[count]
-    background = _median_axis0_sortnet_inplace(slots, spare, scratch.background)
-    scratch.stack_f32[...] = scratch.stack_u16
-    np.subtract(scratch.stack_f32, background[None, ...], out=scratch.stack_f32)
-    np.abs(scratch.stack_f32, out=scratch.stack_f32)
-    mad = _median_axis0_exact_inplace(scratch.stack_f32, scratch.sigma)
-    np.multiply(mad, 1.4826, out=scratch.sigma)
+    if scratch.integer_medians:
+        background_u16 = _median_axis0_sortnet_inplace(slots, spare, scratch.background_u16)
+        background = scratch.background
+        np.copyto(background, background_u16)
+        for i, frame in enumerate(sampled_frames):
+            cv2.absdiff(frame, background_u16, dst=scratch.deviation_pool[i])
+        _median_axis0_sortnet_inplace(
+            scratch.deviation_pool[:count], scratch.deviation_pool[count], scratch.sigma
+        )
+    else:
+        background = _median_axis0_sortnet_inplace(slots, spare, scratch.background)
+        for i, frame in enumerate(sampled_frames):
+            scratch.stack_f32[i, ...] = frame
+        np.subtract(scratch.stack_f32, background[None, ...], out=scratch.stack_f32)
+        np.abs(scratch.stack_f32, out=scratch.stack_f32)
+        _median_axis0_exact_inplace(scratch.stack_f32, scratch.sigma)
+
+    np.multiply(scratch.sigma, 1.4826, out=scratch.sigma)
     np.maximum(scratch.sigma, float(noise_floor), out=scratch.sigma)
     sigma_blur = cv2.GaussianBlur(scratch.sigma, (3, 3), 0, dst=scratch.sigma_blur)
     median_sigma = float(np.median(scratch.sigma[::8, ::8]))

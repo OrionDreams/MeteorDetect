@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Sped up the `optimized_temporal_median` temporal model by about 1.6x by computing the MAD
+  on a uint16 deviation stack through the existing sort network instead of partitioning a
+  float32 stack. When the sample count is odd the background median is the middle sample and
+  is therefore an exact integer, so every `|frame - background|` fits a uint16 unchanged and
+  the result stays bit-exact; even sample counts keep the float32 path. End-to-end throughput
+  on a 4K test clip went from 121 to 167 fps, and temporal model scratch memory dropped from
+  63 MB to 38 MB.
+
 ## v0.2.4 Beta with Detector runtime 0.7.0
 
 - Added explicit app and detector-runtime version sources: the desktop app now uses .NET

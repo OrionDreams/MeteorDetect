@@ -139,7 +139,8 @@ One model is reused for an 8-frame target block.
 
 The default detector algorithm is `optimized_temporal_median`. It uses the same median/MAD
 detection model as the original `temporal_median_mad` path, but computes the exact temporal
-median with partition-based NumPy operations and reusable scratch buffers. The older
+median and MAD with vectorized sort-network NumPy operations and reusable scratch buffers.
+Its output is bit-exact against the older path, not an approximation. The older
 `temporal_median_mad` algorithm remains available as a slower fallback if the optimized
 default misses a meteor on real footage.
 
