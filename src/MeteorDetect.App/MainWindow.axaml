@@ -163,21 +163,29 @@
             </Border.Background>
         </Border>
 
-        <Border Padding="22,16" Background="#121821">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
-                <Border Width="38" Height="38" CornerRadius="8" Background="#090B10" VerticalAlignment="Center" ClipToBounds="True">
-                    <Image Source="/Assets/MeteorDetect.png" Width="38" Height="38" Stretch="Uniform"/>
-                </Border>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold"/>
-                    <TextBlock Classes="secondary"
-                               Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
+        <Border Padding="22,14" Background="#121821">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
+                    <Border Width="38" Height="38" CornerRadius="8" Background="#090B10" VerticalAlignment="Center" ClipToBounds="True">
+                        <Image Source="/Assets/MeteorDetect.png" Width="38" Height="38" Stretch="Uniform"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold"/>
+                        <TextBlock Classes="secondary"
+                                   Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
+                    </StackPanel>
+                    <Button Grid.Column="2" Content="Open File" Command="{Binding AddFilesCommand}" MinWidth="112"/>
+                    <Button Grid.Column="3" Content="Open Directory" Command="{Binding OpenDirectoryCommand}" MinWidth="132"/>
+                    <Button Grid.Column="4" Content="Refresh Directory" Command="{Binding RefreshDirectoryCommand}" MinWidth="142"/>
+                    <Button Grid.Column="5" Classes.pausePending="{Binding IsPauseButtonPending}" Content="{Binding PauseButtonText}" Command="{Binding PauseDetectionCommand}" MinWidth="92"/>
+                    <Button Grid.Column="6" Classes="primary" Content="{Binding DetectButtonText}" Command="{Binding DetectCommand}" MinWidth="132"/>
+                </Grid>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="Camera Class" Classes="secondary" VerticalAlignment="Center"/>
+                    <ComboBox ItemsSource="{Binding CameraClassOptions}"
+                              SelectedItem="{Binding SelectedCameraClass, Mode=TwoWay}"
+                              MinWidth="250"/>
                 </StackPanel>
-                <Button Grid.Column="2" Content="Open File" Command="{Binding AddFilesCommand}" MinWidth="112"/>
-                <Button Grid.Column="3" Content="Open Directory" Command="{Binding OpenDirectoryCommand}" MinWidth="132"/>
-                <Button Grid.Column="4" Content="Refresh Directory" Command="{Binding RefreshDirectoryCommand}" MinWidth="142"/>
-                <Button Grid.Column="5" Classes.pausePending="{Binding IsPauseButtonPending}" Content="{Binding PauseButtonText}" Command="{Binding PauseDetectionCommand}" MinWidth="92"/>
-                <Button Grid.Column="6" Classes="primary" Content="{Binding DetectButtonText}" Command="{Binding DetectCommand}" MinWidth="132"/>
             </Grid>
         </Border>
 
@@ -190,12 +198,6 @@
                             <TextBlock Classes="secondary" Text="Batch detection runs through the Python detector and writes JSON for Resolve import."/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                            <StackPanel Spacing="4">
-                                <TextBlock Text="Camera Class" Classes="secondary"/>
-                                <ComboBox ItemsSource="{Binding CameraClassOptions}"
-                                          SelectedItem="{Binding SelectedCameraClass, Mode=TwoWay}"
-                                          MinWidth="250"/>
-                            </StackPanel>
                             <CheckBox Content="Ignore camera bumps"
                                       IsChecked="{Binding IgnoreCameraBumps}"
                                       ToolTip.Tip="Use this only if the camera was moved while recording."/>
