@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Added `tools/algorithm-only-profiler-analysys.py`, which profiles detection with decoding
+- Added `tools/algorithm-only-profiler-analysis.py`, which profiles detection with decoding
   excluded by preloading frames into RAM and feeding `scan_file` from memory. It reports the
   clip's decode ceiling alongside analysis throughput and worker scaling, which the built-in
   `--profile` cannot separate because decode and analysis overlap there. On 4K H.264 it shows

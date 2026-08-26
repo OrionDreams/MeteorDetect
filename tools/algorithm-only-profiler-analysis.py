@@ -12,9 +12,9 @@ the ceiling, the decoder is the limit and optimising detection will not make sca
 
 Usage:
 
-    python tools/algorithm-only-profiler-analysys.py INPUT.MP4
-    python tools/algorithm-only-profiler-analysys.py INPUT.MP4 --workers 1,4,8
-    python tools/algorithm-only-profiler-analysys.py INPUT.MP4 --config config.example.json
+    python tools/algorithm-only-profiler-analysis.py INPUT.MP4
+    python tools/algorithm-only-profiler-analysis.py INPUT.MP4 --workers 1,4,8
+    python tools/algorithm-only-profiler-analysis.py INPUT.MP4 --config config.example.json
 
 Memory: every frame is held at scan resolution, about 1 MB at the default 960x540, so a
 1800-frame clip needs roughly 1.9 GB. Use a shorter clip when that is tight.
