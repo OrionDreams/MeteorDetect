@@ -373,72 +373,76 @@
             </TabItem>
 
             <TabItem Header="Settings">
-                <Grid Margin="18,0,0,0" RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="14">
-                    <StackPanel>
-                        <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold"/>
-                        <TextBlock Classes="secondary" Text="Resolve importer location, output behavior and detector runtime."/>
-                    </StackPanel>
-
-                    <Border Grid.Row="1" Classes="tile">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="DaVinci Resolve Importer" FontSize="18" FontWeight="SemiBold"/>
-                            <TextBlock Text="Install the Lua Utility script used by Resolve to import meteor JSON as Pink clip markers."
-                                       Classes="secondary"/>
-                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-                                <TextBox Text="{Binding ResolveScriptDirectory, Mode=TwoWay}" PlaceholderText="Resolve Fusion/Scripts/Utility directory"/>
-                                <Button Grid.Column="1" Content="Choose directory" Command="{Binding BrowseResolveDirectoryCommand}"/>
-                                <Button Grid.Column="2" Classes="primary" Content="Install plugin" Command="{Binding InstallResolvePluginCommand}"/>
-                            </Grid>
-                            <TextBlock Text="{Binding ResolvePluginStatus}" Classes="secondary"/>
+                <ScrollViewer Margin="18,0,0,0"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="14" Margin="0,0,8,0">
+                        <StackPanel>
+                            <TextBlock Text="Settings" FontSize="22" FontWeight="SemiBold"/>
+                            <TextBlock Classes="secondary" Text="Resolve importer location, output behavior and detector runtime."/>
                         </StackPanel>
-                    </Border>
 
-                    <Border Grid.Row="2" Classes="tile">
-                        <StackPanel Spacing="8">
-                            <TextBlock Text="Detector" FontSize="18" FontWeight="SemiBold"/>
-                            <TextBlock Text="Algorithm" Classes="secondary"/>
-                            <ComboBox ItemsSource="{Binding DetectorAlgorithmOptions}"
-                                      SelectedItem="{Binding SelectedDetectorAlgorithm, Mode=TwoWay}"
-                                      MinWidth="360"/>
-                            <TextBlock Text="{Binding SelectedDetectorAlgorithm.Description}"
-                                       Classes="secondary"
-                                       TextWrapping="Wrap"/>
-                            <TextBlock Text="Decoder" Classes="secondary" Margin="0,8,0,0"/>
-                            <ComboBox ItemsSource="{Binding DetectorDecoderOptions}"
-                                      SelectedItem="{Binding SelectedDetectorDecoder, Mode=TwoWay}"
-                                      MinWidth="360"/>
-                            <TextBlock Text="{Binding SelectedDetectorDecoder.Description}"
-                                       Classes="secondary"
-                                       TextWrapping="Wrap"/>
-                            <TextBlock Text="Diagnostic Level" Classes="secondary" Margin="0,8,0,0"/>
-                            <ComboBox ItemsSource="{Binding DiagnosticLevelOptions}"
-                                      SelectedItem="{Binding SelectedDiagnosticLevel, Mode=TwoWay}"
-                                      MinWidth="360"/>
-                            <TextBlock Text="{Binding SelectedDiagnosticLevel.Description}"
-                                       Classes="secondary"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </Border>
-
-                    <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="14">
-                        <Border Classes="tile">
-                            <StackPanel Spacing="8">
-                                <TextBlock Text="Output" FontSize="18" FontWeight="SemiBold"/>
-                                <CheckBox Content="Write multiple clips into one JSON file"
-                                          IsChecked="{Binding WriteCombinedJson}"/>
-                                <TextBlock Text="When off, each clip gets its own timestamped JSON next to the source video."
+                        <Border Grid.Row="1" Classes="tile">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="DaVinci Resolve Importer" FontSize="18" FontWeight="SemiBold"/>
+                                <TextBlock Text="Install the Lua Utility script used by Resolve to import meteor JSON as Pink clip markers."
                                            Classes="secondary"/>
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                    <TextBox Text="{Binding ResolveScriptDirectory, Mode=TwoWay}" PlaceholderText="Resolve Fusion/Scripts/Utility directory"/>
+                                    <Button Grid.Column="1" Content="Choose directory" Command="{Binding BrowseResolveDirectoryCommand}"/>
+                                    <Button Grid.Column="2" Classes="primary" Content="Install plugin" Command="{Binding InstallResolvePluginCommand}"/>
+                                </Grid>
+                                <TextBlock Text="{Binding ResolvePluginStatus}" Classes="secondary"/>
                             </StackPanel>
                         </Border>
 
-                        <Border Grid.Column="1" Classes="tile">
+                        <Border Grid.Row="2" Classes="tile">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="Runtime" FontSize="18" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding RuntimeStatus}" Classes="secondary"/>
+                                <TextBlock Text="Detector" FontSize="18" FontWeight="SemiBold"/>
+                                <TextBlock Text="Algorithm" Classes="secondary"/>
+                                <ComboBox ItemsSource="{Binding DetectorAlgorithmOptions}"
+                                          SelectedItem="{Binding SelectedDetectorAlgorithm, Mode=TwoWay}"
+                                          MinWidth="360"/>
+                                <TextBlock Text="{Binding SelectedDetectorAlgorithm.Description}"
+                                           Classes="secondary"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Text="Decoder" Classes="secondary" Margin="0,8,0,0"/>
+                                <ComboBox ItemsSource="{Binding DetectorDecoderOptions}"
+                                          SelectedItem="{Binding SelectedDetectorDecoder, Mode=TwoWay}"
+                                          MinWidth="360"/>
+                                <TextBlock Text="{Binding SelectedDetectorDecoder.Description}"
+                                           Classes="secondary"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Text="Diagnostic Level" Classes="secondary" Margin="0,8,0,0"/>
+                                <ComboBox ItemsSource="{Binding DiagnosticLevelOptions}"
+                                          SelectedItem="{Binding SelectedDiagnosticLevel, Mode=TwoWay}"
+                                          MinWidth="360"/>
+                                <TextBlock Text="{Binding SelectedDiagnosticLevel.Description}"
+                                           Classes="secondary"
+                                           TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
+
+                        <Grid Grid.Row="3" ColumnDefinitions="*,*" ColumnSpacing="14">
+                            <Border Classes="tile">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Output" FontSize="18" FontWeight="SemiBold"/>
+                                    <CheckBox Content="Write multiple clips into one JSON file"
+                                              IsChecked="{Binding WriteCombinedJson}"/>
+                                    <TextBlock Text="When off, each clip gets its own timestamped JSON next to the source video."
+                                               Classes="secondary"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="1" Classes="tile">
+                                <StackPanel Spacing="8">
+                                    <TextBlock Text="Runtime" FontSize="18" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding RuntimeStatus}" Classes="secondary"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
                     </Grid>
-                </Grid>
+                </ScrollViewer>
             </TabItem>
         </TabControl>
     </Grid>
