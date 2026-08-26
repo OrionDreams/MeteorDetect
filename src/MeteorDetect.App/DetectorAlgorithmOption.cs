@@ -68,3 +68,60 @@ public static class DetectorDecoders
             ?? All[0];
     }
 }
+
+public sealed record CameraClassOption(string Id, string Name, string Description)
+{
+    public override string ToString() => Name;
+}
+
+public static class CameraClasses
+{
+    public const string SonyMirrorless = "sony_mirrorless";
+    public const string NoisyCamera = "noisy_camera";
+
+    public static IReadOnlyList<CameraClassOption> All { get; } =
+    [
+        new(
+            SonyMirrorless,
+            "Mirrorless (Sony, Canon, etc)",
+            "Default. Current tuning for mirrorless night-sky footage."),
+        new(
+            NoisyCamera,
+            "Noisy Camera",
+            "Stricter tuning for noisy, compressed, or heavily processed night video."),
+    ];
+
+    public static CameraClassOption Resolve(string? id)
+    {
+        return All.FirstOrDefault(option => string.Equals(option.Id, id, StringComparison.Ordinal))
+            ?? All[0];
+    }
+}
+
+public sealed record DiagnosticLevelOption(int Id, string Name, string Description)
+{
+    public override string ToString() => Name;
+}
+
+public static class DiagnosticLevels
+{
+    public const int Standard = 1;
+    public const int Deep = 2;
+
+    public static IReadOnlyList<DiagnosticLevelOption> All { get; } =
+    [
+        new(
+            Standard,
+            "Level 1",
+            "Default. Writes the current annotated candidate JPEGs."),
+        new(
+            Deep,
+            "Level 2",
+            "Adds residual, threshold mask, sigma map, threshold map, and candidate stats sidecars."),
+    ];
+
+    public static DiagnosticLevelOption Resolve(int id)
+    {
+        return All.FirstOrDefault(option => option.Id == id) ?? All[0];
+    }
+}

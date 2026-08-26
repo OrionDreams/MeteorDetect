@@ -65,6 +65,7 @@ The Python detector remains independently runnable and testable. The UI invokes 
 CLI orchestration:
 
 - loads configuration;
+- applies camera-class tuning profiles;
 - discovers files;
 - applies CLI overrides;
 - invokes `scan_file()`;
@@ -149,6 +150,34 @@ MAD:                  1
 
 The temporary spike does not define the background or normal noise. That is why faint,
 short-lived streaks can stand out while stable stars and foreground are suppressed.
+
+## Camera classes
+
+Camera class is separate from detector algorithm. The algorithm controls the implementation
+used to analyze frames. The camera class controls the threshold profile used for a family of
+footage.
+
+Available camera classes:
+
+- `sony_mirrorless`: the existing default behavior tuned for the original Sony mirrorless
+  footage.
+- `noisy_camera`: a stricter threshold profile for noisier, more heavily processed video
+  such as security-camera or compressed night-mode footage.
+
+The noisy-camera profile keeps the same temporal median/MAD detector but raises candidate
+thresholds. It does not skip frames with many candidates and does not change event grouping.
+
+## Diagnostics
+
+Diagnostic level 1 is the default and preserves the existing annotated candidate JPEGs.
+
+Diagnostic level 2 writes additional sidecar diagnostics for each candidate frame:
+
+- positive residual image;
+- blurred residual image used for thresholding;
+- threshold mask before morphology;
+- local sigma map and final signal-threshold map;
+- per-frame candidate stats JSON.
 
 ## Fast prefilter
 

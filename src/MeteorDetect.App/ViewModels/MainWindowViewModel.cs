@@ -72,7 +72,16 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _ignoreCameraBumps;
 
     [ObservableProperty]
+    private bool _outputDiagnosticImages;
+
+    [ObservableProperty]
     private DetectorAlgorithmOption _selectedDetectorAlgorithm = DetectorAlgorithms.All[0];
+
+    [ObservableProperty]
+    private CameraClassOption _selectedCameraClass = CameraClasses.All[0];
+
+    [ObservableProperty]
+    private DiagnosticLevelOption _selectedDiagnosticLevel = DiagnosticLevels.All[0];
 
     [ObservableProperty]
     private DetectorDecoderOption _selectedDetectorDecoder = DetectorDecoders.All[0];
@@ -155,6 +164,10 @@ public partial class MainWindowViewModel : ObservableObject
 
     public IReadOnlyList<DetectorAlgorithmOption> DetectorAlgorithmOptions => DetectorAlgorithms.All;
 
+    public IReadOnlyList<CameraClassOption> CameraClassOptions => CameraClasses.All;
+
+    public IReadOnlyList<DiagnosticLevelOption> DiagnosticLevelOptions => DiagnosticLevels.All;
+
     public IReadOnlyList<DetectorDecoderOption> DetectorDecoderOptions => DetectorDecoders.All;
 
     public bool HasLoadedDirectory => !string.IsNullOrWhiteSpace(LoadedDirectoryPath);
@@ -229,8 +242,11 @@ public partial class MainWindowViewModel : ObservableObject
             var result = await _detectionService.DetectAsync(
                 targetClips.Select(clip => clip.Path).ToList(),
                 SelectedDetectorAlgorithm.Id,
+                SelectedCameraClass.Id,
                 SelectedDetectorDecoder.Id,
+                SelectedDiagnosticLevel.Id,
                 IgnoreCameraBumps,
+                OutputDiagnosticImages,
                 WriteCombinedJson,
                 UpdateClipStatus,
                 AppendLogThreadSafe);
@@ -468,9 +484,12 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         SelectedDetectorAlgorithm = DetectorAlgorithms.Resolve(_settings.DetectorAlgorithm);
+        SelectedCameraClass = CameraClasses.Resolve(_settings.CameraClass);
+        SelectedDiagnosticLevel = DiagnosticLevels.Resolve(_settings.DiagnosticLevel);
         SelectedDetectorDecoder = DetectorDecoders.Resolve(_settings.DetectorDecoder);
         WriteCombinedJson = _settings.WriteCombinedJson;
         IgnoreCameraBumps = _settings.IgnoreCameraBumps;
+        OutputDiagnosticImages = _settings.OutputDiagnosticImages;
         await LoadHistoryAsync();
         await SettingsStore.SaveAsync(_settings);
         RefreshResolvePluginStatus();
@@ -609,10 +628,28 @@ public partial class MainWindowViewModel : ObservableObject
         _ = SettingsStore.SaveAsync(_settings);
     }
 
+    partial void OnOutputDiagnosticImagesChanged(bool value)
+    {
+        _settings.OutputDiagnosticImages = value;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
     partial void OnSelectedDetectorAlgorithmChanged(DetectorAlgorithmOption value)
     {
         _settings.DetectorAlgorithm = value.Id;
         _settings.FastPrefilter = value.Id == DetectorAlgorithms.AccurateWithPrefilter;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnSelectedCameraClassChanged(CameraClassOption value)
+    {
+        _settings.CameraClass = value.Id;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnSelectedDiagnosticLevelChanged(DiagnosticLevelOption value)
+    {
+        _settings.DiagnosticLevel = value.Id;
         _ = SettingsStore.SaveAsync(_settings);
     }
 

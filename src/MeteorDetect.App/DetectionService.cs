@@ -60,8 +60,11 @@ public sealed class DetectionService
     public async Task<DetectionBatchResult> DetectAsync(
         IReadOnlyList<string> clipPaths,
         string detectorAlgorithm,
+        string cameraClass,
         string detectorDecoder,
+        int diagnosticLevel,
         bool ignoreCameraBumps,
+        bool outputDiagnosticImages,
         bool writeCombinedJson,
         Action<string, string>? updateClipStatus,
         Action<string>? log,
@@ -73,7 +76,9 @@ public sealed class DetectionService
         }
 
         var algorithm = DetectorAlgorithms.Resolve(detectorAlgorithm);
+        var camera = CameraClasses.Resolve(cameraClass);
         var decoder = DetectorDecoders.Resolve(detectorDecoder);
+        var diagnostics = DiagnosticLevels.Resolve(diagnosticLevel);
         var batchDirectory = writeCombinedJson ? CreateBatchDirectory() : null;
         var outputTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var results = new List<ClipDetectionResult>();
@@ -106,13 +111,20 @@ public sealed class DetectionService
             args.Add(clipPath);
             args.Add("-o");
             args.Add(clipOutput);
-            args.Add("--no-diagnostics");
+            if (!outputDiagnosticImages)
+            {
+                args.Add("--no-diagnostics");
+            }
             args.Add("--profile");
 
             args.Add("--detector-algorithm");
             args.Add(algorithm.Id);
+            args.Add("--camera-class");
+            args.Add(camera.Id);
             args.Add("--decoder");
             args.Add(decoder.Id);
+            args.Add("--diagnostic-level");
+            args.Add(diagnostics.Id.ToString());
 
             if (ignoreCameraBumps)
             {
