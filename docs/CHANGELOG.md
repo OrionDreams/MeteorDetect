@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.1 Beta with Detector runtime 0.8.0
+
+- No functionality changes, this is a service release for checking github actions.
+
 ## v0.3.0 Beta with Detector runtime 0.8.0
 
 - Settled on GPL-v3 License for MeteorDetect
