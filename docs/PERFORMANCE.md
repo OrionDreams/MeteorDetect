@@ -33,6 +33,32 @@ python -m meteor_detector.cli INPUT.MP4 -o profile-fast.json --no-diagnostics --
 
 Compare the exact same video.
 
+### Profiling the algorithm without the decoder
+
+In a normal profile, decode and analysis overlap, so a slow scan cannot be attributed to
+either one. To measure detection on its own:
+
+```bash
+python tools/algorithm-only-profiler-analysys.py INPUT.MP4 --workers 1,2,4,6,8
+```
+
+It decodes the clip once into RAM and then feeds `scan_file` from memory, so no codec, scaler
+or pipe is involved. It prints the clip's decode ceiling next to the analysis figures. **When
+analysis throughput is well above that ceiling, the decoder is the limit and optimising
+detection will not make scans faster.** That is currently the case: analysis reaches roughly
+840 fps at 6 workers against a ~200 fps decode ceiling for 4K H.264.
+
+It also shows the worker scaling that a normal profile hides. Detection scales about 3.3x to
+6 workers once decode is out of the way, against the ~1.1x visible end to end.
+
+Pass `--config` to profile a different tuning. Under a candidate-dense config the picture
+changes completely: `event_grouping` dominates at around 40% of runtime and, being serial,
+caps parallel speedup at roughly 1.3x however many workers are used.
+
+Note that it holds every frame in RAM, about 1 MB per frame at 960x540, so an 1800-frame clip
+needs roughly 1.9 GB. Single runs vary by about 10% on a loaded machine; repeat before
+trusting a number.
+
 Detector progress is intentionally coarse. The Python detector reports every 100 decoded frames and once at completion so the desktop UI can update progress without per-frame logging overhead.
 
 ### Reading the report

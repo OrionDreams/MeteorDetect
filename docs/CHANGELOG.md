@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added `tools/algorithm-only-profiler-analysys.py`, which profiles detection with decoding
+  excluded by preloading frames into RAM and feeding `scan_file` from memory. It reports the
+  clip's decode ceiling alongside analysis throughput and worker scaling, which the built-in
+  `--profile` cannot separate because decode and analysis overlap there. On 4K H.264 it shows
+  analysis reaching about 840 fps at 6 workers against a ~200 fps decode ceiling, confirming
+  that scans are decode-bound.
+
 - Added parallel anchor-block analysis with `--workers` / the `worker_threads` config key.
   Blocks are submitted and merged in anchor order, so results are byte-identical to the
   sequential path; verified across the default config, an even sample count, both fallback
