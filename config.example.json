@@ -1,6 +1,8 @@
 {
   "camera_class": "sony_mirrorless",
   "decoder": "ffmpeg",
+  "hardware_decoder": "none",
+  "hardware_decoder_device": null,
   "detector_algorithm": "optimized_temporal_median",
   "scan_width": 960,
   "temporal_window_frames": 25,

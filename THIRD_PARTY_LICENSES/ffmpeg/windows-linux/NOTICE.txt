@@ -1,0 +1,27 @@
+MeteorDetect Windows/Linux FFmpeg build:
+Provider: BtbN/FFmpeg-Builds
+Pinned revision: n9.0.1-6-g9d4ca21220
+Pinned release: autobuild-2026-08-20-13-45
+Variant: gpl static
+
+FFmpeg 9.0.1-based build for Windows x64
+
+Provider:
+BtbN FFmpeg-Builds
+https://github.com/BtbN/FFmpeg-Builds
+
+Pinned build:
+n9.0.1-6-g9d4ca21220
+
+Build variant:
+GPL static build
+
+License:
+GNU General Public License compatible build
+(`--enable-gpl --enable-version3`)
+
+FFmpeg project:
+https://ffmpeg.org/
+
+FFmpeg source:
+https://github.com/FFmpeg/FFmpeg.

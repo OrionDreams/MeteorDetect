@@ -14,6 +14,17 @@ env:
   PYTHON_VERSION: "3.11"
   APP_NAME: MeteorDetect
 
+  # Windows/Linux: pinned BtbN GPL static build based on FFmpeg 9.0.1.
+  BTBN_RELEASE_TAG: "autobuild-2026-08-20-13-45"
+  BTBN_FFMPEG_REVISION: "n9.0.1-6-g9d4ca21220"
+
+  # macOS ARM64: our own exact FFmpeg 9.0.1 full static build.
+  MAC_ARM_FFMPEG_RELEASE: "v0.2.1"
+  MAC_ARM_FFMPEG_ARCHIVE: "ffmpeg-9.0.1-macos-arm64-full-static.tar.xz"
+
+  # macOS Intel: exact FFmpeg 9.0.1 Evermeet static release binaries.
+  MAC_X64_FFMPEG_VERSION: "9.0.1"
+
 jobs:
   windows:
     name: Windows x64
@@ -37,10 +48,40 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force runtime-downloads/ffmpeg, runtime-downloads/ffmpeg-src | Out-Null
-          Invoke-WebRequest -Uri https://github.com/binmgr/ffmpeg/releases/latest/download/ffmpeg-windows-amd64.zip -OutFile runtime-downloads/ffmpeg.zip
+
+          $archive = "ffmpeg-${env:BTBN_FFMPEG_REVISION}-win64-gpl-9.0.zip"
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/${env:BTBN_RELEASE_TAG}/$archive"
+
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile runtime-downloads/ffmpeg.zip
+
           Expand-Archive runtime-downloads/ffmpeg.zip -DestinationPath runtime-downloads/ffmpeg-src
-          Copy-Item (Get-ChildItem runtime-downloads/ffmpeg-src -Recurse -Filter ffmpeg.exe | Select-Object -First 1).FullName runtime-downloads/ffmpeg/ffmpeg.exe
-          Copy-Item (Get-ChildItem runtime-downloads/ffmpeg-src -Recurse -Filter ffprobe.exe | Select-Object -First 1).FullName runtime-downloads/ffmpeg/ffprobe.exe
+
+          $ffmpeg = Get-ChildItem runtime-downloads/ffmpeg-src -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          $ffprobe = Get-ChildItem runtime-downloads/ffmpeg-src -Recurse -Filter ffprobe.exe | Select-Object -First 1
+
+          if (-not $ffmpeg -or -not $ffprobe) {
+            throw "ffmpeg.exe or ffprobe.exe not found"
+          }
+
+          Copy-Item $ffmpeg.FullName runtime-downloads/ffmpeg/ffmpeg.exe
+          Copy-Item $ffprobe.FullName runtime-downloads/ffmpeg/ffprobe.exe
+
+      - name: Verify FFmpeg
+        shell: pwsh
+        run: |
+          $info = (& runtime-downloads/ffmpeg/ffmpeg.exe -version 2>&1) -join "`n"
+          Write-Host $info
+
+          if ($info -notmatch "9\.0\.1") {
+            throw "Expected FFmpeg 9.0.1-based build"
+          }
+          if ($info -notmatch "--enable-gpl") {
+            throw "FFmpeg is missing --enable-gpl"
+          }
+          if ($info -notmatch "--enable-version3") {
+            throw "FFmpeg is missing --enable-version3"
+          }
 
       - name: Build detector executable
         shell: pwsh
@@ -57,15 +98,28 @@ jobs:
         run: |
           $packageRoot = "artifacts/package/${env:APP_NAME}"
           New-Item -ItemType Directory -Force $packageRoot | Out-Null
+
           Copy-Item artifacts/publish/win-x64/* $packageRoot -Recurse
           Copy-Item meteor_detector $packageRoot/meteor_detector -Recurse
           Copy-Item resolve_importer $packageRoot/resolve_importer -Recurse
           Copy-Item config.example.json,requirements.txt,README.md $packageRoot
+
+          if (Test-Path LICENSE) {
+            Copy-Item LICENSE $packageRoot/LICENSE
+          }
+          if (Test-Path THIRD_PARTY_NOTICES.md) {
+            Copy-Item THIRD_PARTY_NOTICES.md $packageRoot/THIRD_PARTY_NOTICES.md
+          }
+
           New-Item -ItemType Directory -Force $packageRoot/runtime/detector | Out-Null
           Copy-Item dist/meteor-detector.exe $packageRoot/runtime/detector/meteor-detector.exe
+
           New-Item -ItemType Directory -Force $packageRoot/runtime/ffmpeg | Out-Null
           Copy-Item runtime-downloads/ffmpeg/ffmpeg.exe $packageRoot/runtime/ffmpeg/ffmpeg.exe
           Copy-Item runtime-downloads/ffmpeg/ffprobe.exe $packageRoot/runtime/ffmpeg/ffprobe.exe
+
+          & runtime-downloads/ffmpeg/ffmpeg.exe -version |
+            Out-File -Encoding utf8 "$packageRoot/runtime/ffmpeg/BUILD_INFO.txt"
 
       - name: Create zip
         shell: pwsh
@@ -100,16 +154,48 @@ jobs:
       - name: Install package tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y file
+          sudo apt-get install -y file xz-utils
 
       - name: Download FFmpeg
         run: |
+          set -euo pipefail
+
           mkdir -p runtime-downloads/ffmpeg runtime-downloads/ffmpeg-src
-          curl -L -o runtime-downloads/ffmpeg.tar.gz https://github.com/binmgr/ffmpeg/releases/latest/download/ffmpeg-linux-amd64.tar.gz
-          tar -xzf runtime-downloads/ffmpeg.tar.gz -C runtime-downloads/ffmpeg-src
-          cp "$(find runtime-downloads/ffmpeg-src -type f -name ffmpeg | head -n 1)" runtime-downloads/ffmpeg/ffmpeg
-          cp "$(find runtime-downloads/ffmpeg-src -type f -name ffprobe | head -n 1)" runtime-downloads/ffmpeg/ffprobe
+
+          archive="ffmpeg-${BTBN_FFMPEG_REVISION}-linux64-gpl-9.0.tar.xz"
+          url="https://github.com/BtbN/FFmpeg-Builds/releases/download/${BTBN_RELEASE_TAG}/${archive}"
+
+          echo "Downloading ${url}"
+          curl -fL --retry 3 -o runtime-downloads/ffmpeg.tar.xz "$url"
+
+          tar -xJf runtime-downloads/ffmpeg.tar.xz -C runtime-downloads/ffmpeg-src
+
+          cp "$(find runtime-downloads/ffmpeg-src -type f -name ffmpeg | head -n 1)" \
+            runtime-downloads/ffmpeg/ffmpeg
+          cp "$(find runtime-downloads/ffmpeg-src -type f -name ffprobe | head -n 1)" \
+            runtime-downloads/ffmpeg/ffprobe
+
           chmod +x runtime-downloads/ffmpeg/ffmpeg runtime-downloads/ffmpeg/ffprobe
+
+      - name: Verify FFmpeg
+        run: |
+          set -euo pipefail
+
+          info="$(runtime-downloads/ffmpeg/ffmpeg -version 2>&1)"
+          echo "$info"
+
+          echo "$info" | grep -q "9\.0\.1" || {
+            echo "Expected FFmpeg 9.0.1-based build"
+            exit 1
+          }
+          echo "$info" | grep -q -- "--enable-gpl" || {
+            echo "FFmpeg is missing --enable-gpl"
+            exit 1
+          }
+          echo "$info" | grep -q -- "--enable-version3" || {
+            echo "FFmpeg is missing --enable-version3"
+            exit 1
+          }
 
       - name: Build detector executable
         run: |
@@ -124,15 +210,33 @@ jobs:
         run: |
           package_root="artifacts/package/${APP_NAME}"
           mkdir -p "$package_root"
+
           cp -a artifacts/publish/linux-x64/. "$package_root/"
           cp -a meteor_detector "$package_root/meteor_detector"
           cp -a resolve_importer "$package_root/resolve_importer"
           cp config.example.json requirements.txt README.md "$package_root/"
+
+          if [ -f LICENSE ]; then
+            cp LICENSE "$package_root/LICENSE"
+          fi
+          if [ -f THIRD_PARTY_NOTICES.md ]; then
+            cp THIRD_PARTY_NOTICES.md "$package_root/THIRD_PARTY_NOTICES.md"
+          fi
+
           mkdir -p "$package_root/runtime/detector" "$package_root/runtime/ffmpeg"
+
           cp dist/meteor-detector "$package_root/runtime/detector/meteor-detector"
           cp runtime-downloads/ffmpeg/ffmpeg "$package_root/runtime/ffmpeg/ffmpeg"
           cp runtime-downloads/ffmpeg/ffprobe "$package_root/runtime/ffmpeg/ffprobe"
-          chmod +x "$package_root/MeteorDetect" "$package_root/runtime/detector/meteor-detector" "$package_root/runtime/ffmpeg/ffmpeg" "$package_root/runtime/ffmpeg/ffprobe"
+
+          runtime-downloads/ffmpeg/ffmpeg -version \
+            > "$package_root/runtime/ffmpeg/BUILD_INFO.txt" 2>&1
+
+          chmod +x \
+            "$package_root/MeteorDetect" \
+            "$package_root/runtime/detector/meteor-detector" \
+            "$package_root/runtime/ffmpeg/ffmpeg" \
+            "$package_root/runtime/ffmpeg/ffprobe"
 
       - name: Create tar.gz
         run: |
@@ -142,11 +246,18 @@ jobs:
       - name: Create AppImage
         run: |
           appdir="artifacts/appimage/${APP_NAME}.AppDir"
-          mkdir -p "$appdir/usr/bin" "$appdir/usr/share/icons/hicolor/256x256/apps" "$appdir/usr/share/icons/hicolor/512x512/apps"
+
+          mkdir -p \
+            "$appdir/usr/bin" \
+            "$appdir/usr/share/icons/hicolor/256x256/apps" \
+            "$appdir/usr/share/icons/hicolor/512x512/apps"
+
           cp -a "artifacts/package/${APP_NAME}/." "$appdir/usr/bin/"
+
           cp media/icons/png/MeteorDetect-256.png "$appdir/${APP_NAME}.png"
           cp media/icons/png/MeteorDetect-256.png "$appdir/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
           cp media/icons/png/MeteorDetect-512.png "$appdir/usr/share/icons/hicolor/512x512/apps/${APP_NAME}.png"
+
           cat > "$appdir/${APP_NAME}.desktop" <<EOF
           [Desktop Entry]
           Type=Application
@@ -155,15 +266,20 @@ jobs:
           Icon=${APP_NAME}
           Categories=AudioVideo;Video;
           EOF
+
           cat > "$appdir/AppRun" <<'EOF'
           #!/usr/bin/env sh
           HERE="$(dirname "$(readlink -f "$0")")"
           exec "$HERE/usr/bin/MeteorDetect" "$@"
           EOF
+
           chmod +x "$appdir/AppRun"
+
           curl -L -o appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
-          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./appimagetool "$appdir" "artifacts/release/${APP_NAME}-linux-x64.AppImage"
+
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 \
+            ./appimagetool "$appdir" "artifacts/release/${APP_NAME}-linux-x64.AppImage"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -176,18 +292,19 @@ jobs:
   macos:
     name: macOS ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: arm64
             rid: osx-arm64
-            ffmpeg_arch: arm64
             runner: macos-15
+            ffmpeg_source: oriondreams
           - arch: x64
             rid: osx-x64
-            ffmpeg_arch: amd64
             runner: macos-15-intel
+            ffmpeg_source: evermeet
 
     steps:
       - name: Checkout
@@ -203,14 +320,112 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Download FFmpeg
+      - name: Download FFmpeg - Apple Silicon
+        if: matrix.ffmpeg_source == 'oriondreams'
         run: |
+          set -euo pipefail
+
           mkdir -p runtime-downloads/ffmpeg runtime-downloads/ffmpeg-src
-          curl -L -o runtime-downloads/ffmpeg.tar.gz https://github.com/binmgr/ffmpeg/releases/latest/download/ffmpeg-darwin-${{ matrix.ffmpeg_arch }}.tar.gz
-          tar -xzf runtime-downloads/ffmpeg.tar.gz -C runtime-downloads/ffmpeg-src
-          cp "$(find runtime-downloads/ffmpeg-src -type f -name ffmpeg | head -n 1)" runtime-downloads/ffmpeg/ffmpeg
-          cp "$(find runtime-downloads/ffmpeg-src -type f -name ffprobe | head -n 1)" runtime-downloads/ffmpeg/ffprobe
+
+          base="https://github.com/OrionDreams/ffmpeg-apple-silicon/releases/download/${MAC_ARM_FFMPEG_RELEASE}"
+
+          curl -fL --retry 3 \
+            -o runtime-downloads/ffmpeg.tar.xz \
+            "${base}/${MAC_ARM_FFMPEG_ARCHIVE}"
+
+          curl -fL --retry 3 \
+            -o runtime-downloads/SHA256SUMS.txt \
+            "${base}/SHA256SUMS.txt"
+
+          (
+            cd runtime-downloads
+            grep "${MAC_ARM_FFMPEG_ARCHIVE}" SHA256SUMS.txt | shasum -a 256 -c -
+          )
+
+          tar -xJf runtime-downloads/ffmpeg.tar.xz -C runtime-downloads/ffmpeg-src
+
+          cp "$(find runtime-downloads/ffmpeg-src -type f -name ffmpeg | head -n 1)" \
+            runtime-downloads/ffmpeg/ffmpeg
+          cp "$(find runtime-downloads/ffmpeg-src -type f -name ffprobe | head -n 1)" \
+            runtime-downloads/ffmpeg/ffprobe
+
           chmod +x runtime-downloads/ffmpeg/ffmpeg runtime-downloads/ffmpeg/ffprobe
+
+      - name: Download FFmpeg - Intel macOS
+        if: matrix.ffmpeg_source == 'evermeet'
+        run: |
+          set -euo pipefail
+
+          mkdir -p runtime-downloads/ffmpeg runtime-downloads/ffmpeg-src
+
+          # Evermeet release binaries are standalone/static Intel macOS executables.
+          # Release naming convention is ffmpeg-X.Y.Z.zip / ffprobe-X.Y.Z.zip.
+          curl -fL --retry 3 \
+            -o runtime-downloads/ffmpeg.zip \
+            "https://evermeet.cx/ffmpeg/ffmpeg-${MAC_X64_FFMPEG_VERSION}.zip"
+
+          curl -fL --retry 3 \
+            -o runtime-downloads/ffprobe.zip \
+            "https://evermeet.cx/ffmpeg/ffprobe-${MAC_X64_FFMPEG_VERSION}.zip"
+
+          ditto -x -k runtime-downloads/ffmpeg.zip runtime-downloads/ffmpeg-src/ffmpeg
+          ditto -x -k runtime-downloads/ffprobe.zip runtime-downloads/ffmpeg-src/ffprobe
+
+          cp "$(find runtime-downloads/ffmpeg-src/ffmpeg -type f -name ffmpeg | head -n 1)" \
+            runtime-downloads/ffmpeg/ffmpeg
+          cp "$(find runtime-downloads/ffmpeg-src/ffprobe -type f -name ffprobe | head -n 1)" \
+            runtime-downloads/ffmpeg/ffprobe
+
+          chmod +x runtime-downloads/ffmpeg/ffmpeg runtime-downloads/ffmpeg/ffprobe
+
+      - name: Verify FFmpeg
+        run: |
+          set -euo pipefail
+
+          info="$(runtime-downloads/ffmpeg/ffmpeg -version 2>&1)"
+          echo "$info"
+
+          echo "$info" | grep -q "9\.0\.1" || {
+            echo "Expected FFmpeg 9.0.1"
+            exit 1
+          }
+
+          echo "$info" | grep -q -- "--enable-gpl" || {
+            echo "FFmpeg is missing --enable-gpl"
+            exit 1
+          }
+
+          echo "$info" | grep -q -- "--enable-version3" || {
+            echo "FFmpeg is missing --enable-version3"
+            exit 1
+          }
+
+          echo "=== architecture ==="
+          file runtime-downloads/ffmpeg/ffmpeg
+          file runtime-downloads/ffmpeg/ffprobe
+
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            file runtime-downloads/ffmpeg/ffmpeg | grep -q "arm64"
+            file runtime-downloads/ffmpeg/ffprobe | grep -q "arm64"
+          else
+            file runtime-downloads/ffmpeg/ffmpeg | grep -Eiq "x86_64|x86-64"
+            file runtime-downloads/ffmpeg/ffprobe | grep -Eiq "x86_64|x86-64"
+          fi
+
+          echo "=== non-system dynamic dependencies ==="
+          if otool -L runtime-downloads/ffmpeg/ffmpeg runtime-downloads/ffmpeg/ffprobe \
+            | grep -E "/opt/homebrew|/usr/local"; then
+            echo "ERROR: FFmpeg has unexpected non-system dynamic dependencies"
+            exit 1
+          fi
+
+          echo "=== decoder count ==="
+          runtime-downloads/ffmpeg/ffmpeg -hide_banner -decoders 2>/dev/null \
+            | awk '/^[[:space:]]*[VAS][A-Z.]{5}[[:space:]]/ {count++} END {print count+0}'
+
+          echo "=== demuxer count ==="
+          runtime-downloads/ffmpeg/ffmpeg -hide_banner -demuxers 2>/dev/null \
+            | awk '/^[[:space:]]*D[[:space:]]/ {count++} END {print count+0}'
 
       - name: Build detector executable
         run: |
@@ -226,17 +441,38 @@ jobs:
           app_bundle="artifacts/package/${APP_NAME}.app"
           macos_dir="$app_bundle/Contents/MacOS"
           resources_dir="$app_bundle/Contents/Resources"
+
           mkdir -p "$macos_dir" "$resources_dir"
+
           cp -a artifacts/publish/${{ matrix.rid }}/. "$macos_dir/"
           cp -a meteor_detector "$macos_dir/meteor_detector"
           cp -a resolve_importer "$macos_dir/resolve_importer"
           cp config.example.json requirements.txt README.md "$macos_dir/"
+
+          if [ -f LICENSE ]; then
+            cp LICENSE "$macos_dir/LICENSE"
+          fi
+          if [ -f THIRD_PARTY_NOTICES.md ]; then
+            cp THIRD_PARTY_NOTICES.md "$macos_dir/THIRD_PARTY_NOTICES.md"
+          fi
+
           mkdir -p "$macos_dir/runtime/detector" "$macos_dir/runtime/ffmpeg"
+
           cp dist/meteor-detector "$macos_dir/runtime/detector/meteor-detector"
           cp runtime-downloads/ffmpeg/ffmpeg "$macos_dir/runtime/ffmpeg/ffmpeg"
           cp runtime-downloads/ffmpeg/ffprobe "$macos_dir/runtime/ffmpeg/ffprobe"
+
+          runtime-downloads/ffmpeg/ffmpeg -version \
+            > "$macos_dir/runtime/ffmpeg/BUILD_INFO.txt" 2>&1
+
           cp media/icons/MeteorDetect.icns "$resources_dir/MeteorDetect.icns"
-          chmod +x "$macos_dir/MeteorDetect" "$macos_dir/runtime/detector/meteor-detector" "$macos_dir/runtime/ffmpeg/ffmpeg" "$macos_dir/runtime/ffmpeg/ffprobe"
+
+          chmod +x \
+            "$macos_dir/MeteorDetect" \
+            "$macos_dir/runtime/detector/meteor-detector" \
+            "$macos_dir/runtime/ffmpeg/ffmpeg" \
+            "$macos_dir/runtime/ffmpeg/ffprobe"
+
           cat > "$app_bundle/Contents/Info.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -268,7 +504,12 @@ jobs:
         run: |
           mkdir -p artifacts/release
           dmg_path="artifacts/release/${APP_NAME}-macos-${{ matrix.arch }}.dmg"
-          hdiutil create -volname "${APP_NAME}" -srcfolder "artifacts/package/${APP_NAME}.app" -ov -format UDZO "$dmg_path"
+          hdiutil create \
+            -volname "${APP_NAME}" \
+            -srcfolder "artifacts/package/${APP_NAME}.app" \
+            -ov \
+            -format UDZO \
+            "$dmg_path"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -279,10 +520,12 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
+
     needs:
       - windows
       - linux
       - macos
+
     if: startsWith(github.ref, 'refs/tags/v')
 
     steps:

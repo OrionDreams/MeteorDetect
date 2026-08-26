@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 import sys
+import threading
 import time
 from collections import defaultdict, deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from fractions import Fraction
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -24,6 +28,17 @@ PARTIAL_CHECKPOINT_INTERVAL_FRAMES = 1000
 DEFAULT_CONFIG: dict[str, Any] = {
     "camera_class": "sony_mirrorless",
     "decoder": "ffmpeg",
+    # Off by default: hardware decode availability varies by machine, driver and codec, and
+    # the portable software path is the one every user is guaranteed to get. When enabled,
+    # scaling deliberately stays on the CPU so decoded frames remain bit-identical to the
+    # software path; only the codec reconstruction moves to the GPU. See docs/PERFORMANCE.md.
+    "hardware_decoder": "none",
+    "hardware_decoder_device": None,
+    # Anchor blocks are independent, so they analyse in parallel. 0 picks a small pool
+    # automatically; 1 keeps the fully sequential path. Do not raise this to the core count:
+    # the gain is small and caps early, and past ~4 workers throughput goes backwards.
+    # See docs/PERFORMANCE.md for why the ceiling is decode, not analysis.
+    "worker_threads": 0,
     "detector_algorithm": "optimized_temporal_median",
     "scan_width": 960,
     "temporal_window_frames": 25,
@@ -170,16 +185,28 @@ class PauseRequested(Exception):
 
 class TemporalModelScratch:
     def __init__(self, sample_count: int, height: int, width: int) -> None:
-        shape = (sample_count, height, width)
         frame_shape = (height, width)
-        self.stack_u16 = np.empty(shape, dtype=np.uint16)
-        self.stack_f32 = np.empty(shape, dtype=np.float32)
         self.background = np.empty(frame_shape, dtype=np.float32)
         self.sigma = np.empty(frame_shape, dtype=np.float32)
         self.sigma_blur = np.empty(frame_shape, dtype=np.float32)
         self.signal_threshold = np.empty(frame_shape, dtype=np.float32)
-        # One extra buffer beyond sample_count acts as the sort network's rotating spare slot.
-        self.sortnet_pool = [np.empty(frame_shape, dtype=np.uint16) for _ in range(sample_count + 1)]
+        # One extra buffer beyond sample_count acts as the selection network's rotating spare slot.
+        self.selection_pool = [np.empty(frame_shape, dtype=np.uint16) for _ in range(sample_count + 1)]
+
+        # An odd sample count takes the middle sample as the median, so the temporal background
+        # is always an exact integer and every |frame - background| fits a uint16 unchanged. The
+        # deviation stack can then stay in uint16 and reuse the selection network, which is much
+        # faster than partitioning a float32 stack. An even count averages the two middle
+        # samples and can land on a half-integer, so that case keeps the float32 stack.
+        self.integer_medians = sample_count % 2 == 1
+        if self.integer_medians:
+            self.background_u16 = np.empty(frame_shape, dtype=np.uint16)
+            self.deviation_pool = [np.empty(frame_shape, dtype=np.uint16) for _ in range(sample_count + 1)]
+            self.stack_f32 = None
+        else:
+            self.background_u16 = None
+            self.deviation_pool = None
+            self.stack_f32 = np.empty((sample_count, height, width), dtype=np.float32)
 
 
 class Profiler:
@@ -195,6 +222,10 @@ class Profiler:
         self.seconds: defaultdict[str, float] = defaultdict(float)
         self.counts: defaultdict[str, int] = defaultdict(int)
         self.started = time.perf_counter()
+        # Analysis stages are collected per worker and summed, so with a pool their total
+        # overlaps the main thread's wall clock and can exceed it. Recorded so the report can
+        # use the right denominator instead of showing percentages that add up past 100%.
+        self.worker_threads = 1
 
     def add_time(self, name: str, seconds: float) -> None:
         if self.enabled:
@@ -209,6 +240,7 @@ class Profiler:
         stages = {k: round(v, 6) for k, v in sorted(self.seconds.items())}
         return {
             "total_seconds": round(total, 6),
+            "worker_threads": self.worker_threads,
             "stages_seconds": stages,
             "counts": dict(sorted(self.counts.items())),
         }
@@ -329,10 +361,168 @@ def _scan_dimensions(width: int, height: int, scan_width: int) -> tuple[int, int
     return max(2, sw - sw % 2), max(2, sh - sh % 2)
 
 
-def ffmpeg_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
+HARDWARE_DECODER_CHOICES = ("none", "auto", "vaapi", "cuda", "qsv", "videotoolbox", "d3d11va", "dxva2")
+
+# Tried in this order when `hardware_decoder` is "auto". Only methods ffmpeg reports as
+# built in are attempted, and each is probed against the real file before being accepted.
+_HARDWARE_DECODER_AUTO_ORDER = ("videotoolbox", "vaapi", "cuda", "qsv", "d3d11va", "dxva2")
+
+
+def normalize_hardware_decoder(method: str | None) -> str:
+    selected = str(method or "none").strip().lower()
+    if selected in ("", "off", "software", "cpu"):
+        selected = "none"
+    if selected not in HARDWARE_DECODER_CHOICES:
+        choices = ", ".join(HARDWARE_DECODER_CHOICES)
+        raise ValueError(f"Unknown hardware decoder '{method}'. Choices: {choices}")
+    return selected
+
+
+def _hwaccel_args(method: str, device: str | None) -> list[str]:
+    """FFmpeg flags for `method`, leaving frames in system memory.
+
+    Deliberately omits `-hwaccel_output_format`, so ffmpeg downloads decoded frames and the
+    CPU filter chain still performs the area-averaged downscale. That keeps output identical
+    to software decoding: H.264/HEVC reconstruction is exact per spec, so a compliant
+    hardware decoder returns the same samples. Scaling on the GPU would be faster still, but
+    its scaler is not area-averaging and measurably shifts pixel values, which would change
+    detection results.
+    """
+    if method == "none":
+        return []
+    args = ["-hwaccel", method]
+    if device:
+        args += ["-hwaccel_device", device]
+    return args
+
+
+def available_hwaccels() -> list[str]:
+    try:
+        p = subprocess.run(["ffmpeg", "-hide_banner", "-hwaccels"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+    except Exception:
+        return []
+    if p.returncode != 0:
+        return []
+    lines = [line.strip() for line in p.stdout.splitlines()[1:]]
+    return [line for line in lines if line]
+
+
+def _candidate_hw_devices(method: str, device: str | None) -> list[str | None]:
+    if device:
+        return [device]
+    if method in ("vaapi", "qsv"):
+        # ffmpeg's default render node may belong to a GPU whose driver cannot decode (a
+        # discrete NVIDIA card exposes one but has no VAAPI driver), so try each in turn.
+        nodes = sorted(str(p) for p in Path("/dev/dri").glob("renderD*")) if Path("/dev/dri").is_dir() else []
+        return [*nodes, None] if nodes else [None]
+    return [None]
+
+
+# GPU surface pixel format each method decodes into, needed to force frames to stay on the
+# device during probing. Values are ffmpeg's own pix_fmt names.
+_HWACCEL_SURFACE_FORMAT = {
+    "vaapi": "vaapi",
+    "cuda": "cuda",
+    "qsv": "qsv",
+    "videotoolbox": "videotoolbox_vld",
+    "d3d11va": "d3d11",
+    "dxva2": "dxva2_vld",
+}
+
+# Tried in turn when downloading a probe frame, to cover 8-bit and 10-bit surfaces.
+_HW_DOWNLOAD_FORMATS = ("nv12", "p010", "yuv420p")
+
+
+def _probe_hardware_decoder(path: Path, method: str, device: str | None) -> bool:
+    """Confirm this accelerator genuinely decodes this file.
+
+    `-hwaccel` on its own is best effort: when the GPU cannot handle the codec, ffmpeg quietly
+    decodes in software and still exits 0, so a permissive probe would report acceleration that
+    is not happening (MPEG-4 part 2 does exactly this on current Intel and NVIDIA hardware).
+    Demanding `-hwaccel_output_format` keeps frames on the device, which only succeeds under
+    real hardware decode. The scan itself then runs without that flag, so frames come back to
+    system memory for the bit-exact CPU downscale.
+
+    Probing up front also matters because a decoder can initialize and then fail. Discovering
+    that mid-scan would strand a partly consumed frame generator, so the fallback decision is
+    made before the scan starts.
+    """
+    surface = _HWACCEL_SURFACE_FORMAT.get(method)
+    if surface is None:
+        return False
+    for download_format in _HW_DOWNLOAD_FORMATS:
+        cmd = ["ffmpeg", "-v", "error", "-nostdin", "-noautorotate"] + _hwaccel_args(method, device) + [
+            "-hwaccel_output_format", surface, "-i", str(path),
+            "-map", "0:v:0", "-an", "-sn", "-dn", "-frames:v", "2",
+            "-vf", f"hwdownload,format={download_format}", "-f", "null", "-",
+        ]
+        try:
+            p = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        except Exception:
+            continue
+        if p.returncode == 0:
+            return True
+    return False
+
+
+def resolve_hardware_decoder(
+    path: Path, cfg: dict[str, Any], codec: str | None = None
+) -> tuple[str, str | None]:
+    """Pick a working hardware decoder, or fall back to software.
+
+    Returns ("none", None) when disabled or when nothing usable is found, so a machine
+    without the right GPU or driver still scans instead of failing.
+    """
+    requested = normalize_hardware_decoder(cfg.get("hardware_decoder"))
+    if requested == "none":
+        return "none", None
+    if str(cfg.get("decoder", "ffmpeg")).lower() != "ffmpeg":
+        print("[hw] hardware decoding requires --decoder ffmpeg; using software decoding",
+              file=sys.stderr)
+        return "none", None
+
+    device = cfg.get("hardware_decoder_device") or None
+    built_in = available_hwaccels()
+    if requested == "auto":
+        methods = [m for m in _HARDWARE_DECODER_AUTO_ORDER if m in built_in]
+        if not methods:
+            print("[hw] this ffmpeg reports no usable hardware decoders; using software decoding",
+                  file=sys.stderr)
+            return "none", None
+    else:
+        if built_in and requested not in built_in:
+            print(f"[hw] ffmpeg was not built with '{requested}'; using software decoding",
+                  file=sys.stderr)
+            return "none", None
+        methods = [requested]
+
+    for method in methods:
+        for candidate in _candidate_hw_devices(method, device):
+            if _probe_hardware_decoder(path, method, candidate):
+                where = f" on {candidate}" if candidate else ""
+                print(f"[hw] hardware decoding enabled: {method}{where}", file=sys.stderr)
+                return method, candidate
+
+    tried = "/".join(methods)
+    detail = f" (codec {codec})" if codec else ""
+    print(f"[hw] no hardware decoder ({tried}) handles {path.name}{detail}; "
+          f"using software decoding", file=sys.stderr)
+    return "none", None
+
+
+def ffmpeg_frames(
+    path: Path,
+    width: int,
+    height: int,
+    hw_method: str = "none",
+    hw_device: str | None = None,
+) -> Iterable[np.ndarray]:
     vf = f"scale={width}:{height}:flags=area,format=gray16le"
     cmd = [
-        "ffmpeg", "-v", "error", "-nostdin", "-noautorotate", "-i", str(path),
+        "ffmpeg", "-v", "error", "-nostdin", "-noautorotate",
+        *_hwaccel_args(hw_method, hw_device),
+        "-i", str(path),
         "-map", "0:v:0", "-an", "-sn", "-dn", "-vf", vf,
         "-f", "rawvideo", "-pix_fmt", "gray16le", "pipe:1",
     ]
@@ -390,10 +580,17 @@ def opencv_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
         cap.release()
 
 
-def iter_decoded_frames(path: Path, width: int, height: int, cfg: dict[str, Any]) -> Iterable[np.ndarray]:
+def iter_decoded_frames(
+    path: Path,
+    width: int,
+    height: int,
+    cfg: dict[str, Any],
+    hw_method: str = "none",
+    hw_device: str | None = None,
+) -> Iterable[np.ndarray]:
     decoder = str(cfg.get("decoder", "ffmpeg")).lower()
     if decoder == "ffmpeg":
-        return ffmpeg_frames(path, width, height)
+        return ffmpeg_frames(path, width, height, hw_method, hw_device)
     if decoder == "opencv":
         return opencv_frames(path, width, height)
     raise ValueError(f"Unknown decoder '{decoder}'. Choices: ffmpeg, opencv")
@@ -463,27 +660,73 @@ def _robust_temporal_model_median(sampled_frames: list[np.ndarray], noise_floor:
     return background.astype(np.float32, copy=False), sigma, sigma_blur, median_sigma
 
 
-def _median_axis0_sortnet_inplace(
+def _batcher_odd_even_mergesort(count: int) -> list[tuple[int, int]]:
+    """Comparator pairs of Batcher's odd-even mergesort, valid for any `count`."""
+    comparators: list[tuple[int, int]] = []
+    p = 1
+    while p < count:
+        k = p
+        while k >= 1:
+            for j in range(k % p, count - k, 2 * k):
+                for i in range(min(k, count - j - k)):
+                    if (i + j) // (p * 2) == (i + j + k) // (p * 2):
+                        comparators.append((i + j, i + j + k))
+            k //= 2
+        p *= 2
+    return comparators
+
+
+@lru_cache(maxsize=64)
+def _median_selection_network(count: int) -> tuple[tuple[int, int], ...]:
+    """Comparators that place the median order statistic(s) correctly, and nothing else.
+
+    Starts from Batcher's odd-even mergesort, then drops every comparator that cannot
+    influence the middle position(s) by walking the network backwards and keeping only
+    comparators touching a live wire. The result is a selection network rather than a sorting
+    network: positions outside the middle are left in arbitrary order, which is fine because
+    only the middle is ever read.
+
+    For the default 13 samples this is 39 comparators against the 78 of the odd-even
+    transposition sort it replaces, for identical order statistics. Both middle positions are
+    targeted for an even count, which needs slots[mid - 1] and slots[mid] to average.
+    """
+    targets = {count // 2} if count % 2 else {count // 2 - 1, count // 2}
+    live = set(targets)
+    kept: list[tuple[int, int]] = []
+    for i, j in reversed(_batcher_odd_even_mergesort(count)):
+        if i in live or j in live:
+            kept.append((i, j))
+            live.add(i)
+            live.add(j)
+    kept.reverse()
+    return tuple(kept)
+
+
+def _median_axis0_selection_inplace(
     slots: list[np.ndarray], spare: np.ndarray, out: np.ndarray
 ) -> np.ndarray:
-    """Exact median across slots[0], via an odd-even transposition sort network.
+    """Exact median across slots[0], via a median selection network.
 
     Yields the same per-pixel order statistics as `_median_axis0_exact_inplace`
     (same values, same casting, just reached through elementwise min/max compare-
     exchanges instead of `np.partition`). numpy's partition kernel is not well
-    vectorized for small uint16 stacks, so this is substantially faster there;
-    it is not used for the float32 MAD stack, where `np.partition` already wins.
+    vectorized for small uint16 stacks, so this is substantially faster there.
+
+    It carries both the background stack and, when the sample count is odd, the
+    absolute-deviation stack behind the MAD. On a float32 stack `np.partition`
+    still wins, so an even sample count keeps that path.
+
+    Each compare-exchange is two full-array passes, so runtime tracks the comparator count
+    directly; `spare` rotates through the slots so no pass allocates.
     """
     count = len(slots)
     mid = count // 2
-    for p in range(count):
-        start = p % 2
-        for i in range(start, count - 1, 2):
-            x, y = slots[i], slots[i + 1]
-            np.minimum(x, y, out=spare)
-            np.maximum(x, y, out=y)
-            slots[i], slots[i + 1] = spare, y
-            spare = x
+    for i, j in _median_selection_network(count):
+        x, y = slots[i], slots[j]
+        np.minimum(x, y, out=spare)
+        np.maximum(x, y, out=y)
+        slots[i], slots[j] = spare, y
+        spare = x
     if count % 2:
         np.copyto(out, slots[mid], casting="unsafe")
         return out
@@ -501,17 +744,28 @@ def _robust_temporal_model_partition(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     count = len(sampled_frames)
     for i, frame in enumerate(sampled_frames):
-        scratch.stack_u16[i, ...] = frame
-        np.copyto(scratch.sortnet_pool[i], frame)
+        np.copyto(scratch.selection_pool[i], frame)
 
-    slots = scratch.sortnet_pool[:count]
-    spare = scratch.sortnet_pool[count]
-    background = _median_axis0_sortnet_inplace(slots, spare, scratch.background)
-    scratch.stack_f32[...] = scratch.stack_u16
-    np.subtract(scratch.stack_f32, background[None, ...], out=scratch.stack_f32)
-    np.abs(scratch.stack_f32, out=scratch.stack_f32)
-    mad = _median_axis0_exact_inplace(scratch.stack_f32, scratch.sigma)
-    np.multiply(mad, 1.4826, out=scratch.sigma)
+    slots = scratch.selection_pool[:count]
+    spare = scratch.selection_pool[count]
+    if scratch.integer_medians:
+        background_u16 = _median_axis0_selection_inplace(slots, spare, scratch.background_u16)
+        background = scratch.background
+        np.copyto(background, background_u16)
+        for i, frame in enumerate(sampled_frames):
+            cv2.absdiff(frame, background_u16, dst=scratch.deviation_pool[i])
+        _median_axis0_selection_inplace(
+            scratch.deviation_pool[:count], scratch.deviation_pool[count], scratch.sigma
+        )
+    else:
+        background = _median_axis0_selection_inplace(slots, spare, scratch.background)
+        for i, frame in enumerate(sampled_frames):
+            scratch.stack_f32[i, ...] = frame
+        np.subtract(scratch.stack_f32, background[None, ...], out=scratch.stack_f32)
+        np.abs(scratch.stack_f32, out=scratch.stack_f32)
+        _median_axis0_exact_inplace(scratch.stack_f32, scratch.sigma)
+
+    np.multiply(scratch.sigma, 1.4826, out=scratch.sigma)
     np.maximum(scratch.sigma, float(noise_floor), out=scratch.sigma)
     sigma_blur = cv2.GaussianBlur(scratch.sigma, (3, 3), 0, dst=scratch.sigma_blur)
     median_sigma = float(np.median(scratch.sigma[::8, ::8]))
@@ -725,6 +979,171 @@ def find_candidates(
     )
 
 
+@dataclass
+class BlockResult:
+    """What one anchor block produced. Merged back on the main thread, in submission order."""
+    anchor: int
+    end: int
+    candidates: list[Candidate]
+    last_candidate_frame: int
+    seconds: dict[str, float]
+    counts: dict[str, int]
+
+
+class BlockContext:
+    """Everything an anchor block needs that does not vary between blocks.
+
+    Holds the per-thread temporal model scratch. Those buffers are mutated in place, so
+    workers must never share one; `scratch` hands each thread its own on first use.
+    """
+
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        sw: int,
+        sh: int,
+        half: int,
+        sample_offsets: list[int],
+        sample_count: int,
+        block_left: int,
+        block_right: int,
+        temporal_model_impl: str,
+        diagnostic_level: int,
+        diag_dir: Path,
+        rotation: int,
+        profile: bool,
+    ) -> None:
+        self.cfg = cfg
+        self.sw = sw
+        self.sh = sh
+        self.half = half
+        self.sample_offsets = sample_offsets
+        self.sample_count = sample_count
+        self.block_left = block_left
+        self.block_right = block_right
+        self.temporal_model_impl = temporal_model_impl
+        self.diagnostic_level = diagnostic_level
+        self.diag_dir = diag_dir
+        self.rotation = rotation
+        self.profile = profile
+        self.use_prefilter = bool(cfg.get("fast_prefilter", False))
+        self.ignore_camera_bumps = bool(cfg.get("ignore_camera_bumps", False))
+        self.camera_bump_max_candidates = int(cfg.get("camera_bump_max_candidates_per_frame", 15))
+        self.write_diagnostics = bool(cfg.get("diagnostic_jpegs", True))
+        self.diagnostic_quality = int(cfg["diagnostic_quality"])
+        self.noise_floor = float(cfg["local_noise_floor"])
+        self.local_sigma_threshold = float(cfg["local_sigma_threshold"])
+        self.minimum_threshold = float(cfg["minimum_threshold"])
+        self._local = threading.local()
+
+    @property
+    def scratch(self) -> TemporalModelScratch | None:
+        if self.temporal_model_impl != "partition":
+            return None
+        existing = getattr(self._local, "scratch", None)
+        if existing is None:
+            existing = TemporalModelScratch(self.sample_count, self.sh, self.sw)
+            self._local.scratch = existing
+        return existing
+
+
+def analyze_block(
+    ctx: BlockContext,
+    anchor: int,
+    start: int,
+    end: int,
+    window: list[np.ndarray],
+    window_first: int,
+) -> BlockResult:
+    """Build one temporal model and detect over the frames it covers.
+
+    `window` holds frames `window_first .. window_first + len(window) - 1`, which spans the
+    whole sample window, so this runs without touching the decoder's shared frame buffer.
+    Timings and counters accumulate locally and are merged by the caller, so no lock is needed.
+    """
+    profiler = Profiler(ctx.profile)
+    result = BlockResult(anchor=anchor, end=end, candidates=[], last_candidate_frame=-1,
+                         seconds={}, counts={})
+
+    def get_frame(index: int) -> np.ndarray:
+        pos = index - window_first
+        if pos < 0 or pos >= len(window):
+            raise IndexError(
+                f"frame {index} is outside block window "
+                f"{window_first}..{window_first + len(window) - 1}"
+            )
+        return window[pos]
+
+    def finish() -> BlockResult:
+        result.seconds = dict(profiler.seconds)
+        result.counts = dict(profiler.counts)
+        return result
+
+    if ctx.use_prefilter:
+        passed = _cheap_prefilter_block(
+            get_frame, anchor, ctx.half, ctx.block_left, ctx.block_right, ctx.sw, ctx.cfg, profiler
+        )
+        if not passed:
+            profiler.inc("deep_blocks_skipped")
+            return finish()
+
+    scratch = ctx.scratch
+    t_model = time.perf_counter()
+    sampled = [get_frame(anchor + off) for off in ctx.sample_offsets]
+    background, _sigma, sigma_blur, median_sigma = _robust_temporal_model(
+        sampled, ctx.noise_floor, ctx.temporal_model_impl, scratch
+    )
+    if scratch is not None:
+        signal_threshold = scratch.signal_threshold
+        np.maximum(sigma_blur, 1.0, out=signal_threshold)
+        np.multiply(signal_threshold, ctx.local_sigma_threshold, out=signal_threshold)
+        np.maximum(signal_threshold, ctx.minimum_threshold, out=signal_threshold)
+    else:
+        signal_threshold = np.maximum(
+            ctx.minimum_threshold,
+            ctx.local_sigma_threshold * np.maximum(sigma_blur, 1.0),
+        ).astype(np.float32, copy=False)
+    profiler.add_time("temporal_model", time.perf_counter() - t_model)
+    profiler.inc("temporal_models")
+
+    for idx in range(start, end + 1):
+        center = get_frame(idx)
+        detection = find_candidates(
+            center, background, sigma_blur, signal_threshold, idx,
+            ctx.cfg, profiler, ctx.diagnostic_level,
+        )
+        cands = detection.candidates
+        if cands:
+            if ctx.ignore_camera_bumps and len(cands) > ctx.camera_bump_max_candidates:
+                profiler.inc("camera_bump_frames")
+                profiler.inc("camera_bump_candidates", len(cands))
+                continue
+            result.candidates.extend(cands)
+            result.last_candidate_frame = max(result.last_candidate_frame, idx)
+            if ctx.write_diagnostics:
+                td = time.perf_counter()
+                _write_diag(
+                    center, detection, idx, median_sigma, sigma_blur, signal_threshold,
+                    ctx.diag_dir, ctx.diagnostic_quality, ctx.rotation, ctx.diagnostic_level,
+                )
+                profiler.add_time("diagnostics", time.perf_counter() - td)
+    return finish()
+
+
+def resolve_worker_threads(cfg: dict[str, Any]) -> int:
+    """Worker count for block analysis; 1 means the sequential path.
+
+    Auto deliberately picks a very small pool. Two effects cap this work long before it
+    saturates cores: block analysis streams large buffers and saturates memory bandwidth, and
+    on candidate-dense frames the per-component geometry loop is Python-level and holds the
+    GIL. Measured end to end, 2-4 workers is the whole win and more workers get slower.
+    """
+    requested = int(cfg.get("worker_threads", 0) or 0)
+    if requested > 0:
+        return requested
+    return max(1, min(3, (os.cpu_count() or 1) - 1))
+
+
 def _angle_difference(a: float, b: float) -> float:
     d = abs(a - b) % 180.0
     return min(d, 180.0 - d)
@@ -867,12 +1286,17 @@ def _partial_payload(
     candidates: list[Candidate],
     events: list[Event],
     profile_data: dict[str, Any] | None = None,
+    hardware_decoder: str | None = None,
 ) -> dict[str, Any]:
     file_result = {
         "filename": path.name,
         "path": str(path.resolve()),
         **info,
         "decoder": str(cfg.get("decoder", "ffmpeg")),
+        # The decoder actually in use, which is "none" when a requested accelerator was
+        # unavailable and the scan fell back to software.
+        "hardware_decoder": hardware_decoder if hardware_decoder is not None
+        else normalize_hardware_decoder(cfg.get("hardware_decoder")),
         "camera_class": str(cfg.get("camera_class", "sony_mirrorless")),
         "scan_width": sw,
         "scan_height": sh,
@@ -919,9 +1343,11 @@ def write_partial_checkpoint(
     candidates: list[Candidate],
     events: list[Event] | None = None,
     profile_data: dict[str, Any] | None = None,
+    hardware_decoder: str | None = None,
 ) -> None:
     events = group_events(path.name, candidates, cfg) if events is None else events
-    payload = _partial_payload(path, info, sw, sh, cfg, frame_progress, candidates, events, profile_data)
+    payload = _partial_payload(path, info, sw, sh, cfg, frame_progress, candidates, events,
+                               profile_data, hardware_decoder)
     _atomic_write_json(partial_output_path, payload)
 
 
@@ -993,34 +1419,56 @@ def _write_diag(frame_u16: np.ndarray, detection: CandidateDetection, frame_idx:
         f.write("\n")
 
 
+# Stages the main thread spends wall-clock time in. These are serial, so they are shown as a
+# share of total runtime.
+PIPELINE_STAGES = ("decode_wait", "block_wait", "event_grouping")
+
+# Stages inside block analysis. With a worker pool these are summed across workers and overlap
+# the pipeline stages, so they are shown as a share of analysis time, not of the wall clock.
+ANALYSIS_STAGES = (
+    "prefilter",
+    "temporal_model",
+    "residual_blur_threshold",
+    "mask_morphology_components",
+    "component_geometry",
+    "diagnostics",
+)
+
+
 def format_profile(profile: dict[str, Any], filename: str) -> str:
     total = float(profile.get("total_seconds", 0.0))
     stages = profile.get("stages_seconds", {}) or {}
     counts = profile.get("counts", {}) or {}
+    workers = int(profile.get("worker_threads", 1) or 1)
     decoded = int(counts.get("decoded_frames", 0))
     fps = decoded / total if total > 0 else 0.0
+    analysis_total = sum(float(stages.get(name, 0.0)) for name in ANALYSIS_STAGES)
     lines = [
         f"Performance profile: {filename}",
         "-" * (21 + len(filename)),
         f"Frames decoded:             {decoded}",
         f"Total time:                 {total:9.3f} s",
         f"Effective throughput:       {fps:9.2f} fps",
+        f"Worker threads:             {workers:9d}",
         "",
-        "Stage timings:",
+        "Pipeline (main thread, share of wall clock):",
     ]
-    for name in (
-        "decode_wait",
-        "prefilter",
-        "temporal_model",
-        "residual_blur_threshold",
-        "mask_morphology_components",
-        "component_geometry",
-        "diagnostics",
-        "event_grouping",
-    ):
+    for name in PIPELINE_STAGES:
         value = float(stages.get(name, 0.0))
         pct = (100.0 * value / total) if total > 0 else 0.0
         lines.append(f"  {name:29s} {value:9.3f} s  {pct:5.1f}%")
+
+    if workers > 1:
+        header = f"Analysis (summed across {workers} workers, overlapping the above):"
+    else:
+        header = "Analysis (share of analysis time):"
+    lines += ["", header]
+    for name in ANALYSIS_STAGES:
+        value = float(stages.get(name, 0.0))
+        pct = (100.0 * value / analysis_total) if analysis_total > 0 else 0.0
+        lines.append(f"  {name:29s} {value:9.3f} s  {pct:5.1f}%")
+    overlap = (analysis_total / total) if total > 0 else 0.0
+    lines.append(f"  {'analysis total':29s} {analysis_total:9.3f} s  {overlap:5.2f}x wall")
     lines += [
         "",
         "Counters:",
@@ -1075,13 +1523,13 @@ def scan_file(
         sample_offsets.sort()
     if len(sample_offsets) < 7:
         raise ValueError("temporal_window_frames / temporal_sample_stride must yield at least 7 samples")
-    temporal_scratch = TemporalModelScratch(len(sample_offsets), sh, sw) if str(cfg.get("temporal_model_impl", "median")) == "partition" else None
 
     estimated = info.get("estimated_frames") or 0
     analysis_start_frame = max(0, int(analysis_start_frame))
     all_candidates: list[Candidate] = list(initial_candidates or [])
     algorithm = str(cfg.get("detector_algorithm", "optimized_temporal_median"))
     decoder = str(cfg.get("decoder", "ffmpeg"))
+    hw_method, hw_device = resolve_hardware_decoder(path, cfg, info.get("codec_name"))
     temporal_model_impl = str(cfg.get("temporal_model_impl", "median"))
     camera_class = str(cfg.get("camera_class", "sony_mirrorless"))
     diagnostic_level = int(cfg.get("diagnostic_level", 1))
@@ -1089,13 +1537,19 @@ def scan_file(
         raise ValueError("diagnostic_level must be 1 or 2")
     use_prefilter = bool(cfg.get("fast_prefilter", False))
     ignore_camera_bumps = bool(cfg.get("ignore_camera_bumps", False))
-    camera_bump_max_candidates = int(cfg.get("camera_bump_max_candidates_per_frame", 15))
 
     buf: deque[tuple[int, np.ndarray]] = deque()
     next_anchor = half
     processed_through = half - 1
+    submitted_through = half - 1
     block_left = model_stride // 2
     block_right = model_stride - block_left - 1
+    workers = max(1, resolve_worker_threads(cfg))
+    profiler.worker_threads = workers
+    ctx = BlockContext(
+        cfg, sw, sh, half, sample_offsets, len(sample_offsets), block_left, block_right,
+        temporal_model_impl, diagnostic_level, diag_dir, int(info.get("rotation", 0)), profile,
+    )
     last_candidate_frame = max((candidate.frame for candidate in all_candidates), default=-1)
     next_checkpoint_frame = max(checkpoint_interval_frames, analysis_start_frame + checkpoint_interval_frames)
     if pause_request_path is not None:
@@ -1108,78 +1562,53 @@ def scan_file(
             raise IndexError(f"frame {index} is outside buffered range {first}..{buf[-1][0]}")
         return buf[pos][1]
 
-    def process_anchor(anchor: int) -> None:
-        nonlocal processed_through, last_candidate_frame
-        start = max(half, anchor - block_left, processed_through + 1)
+    # Blocks are submitted in anchor order and merged in that same order, so candidates land in
+    # exactly the sequence the sequential path produced. That matters: group_events sorts with a
+    # stable sort, so input order still decides ties.
+    pending: deque[tuple[int, Any]] = deque()
+
+    def submit_anchor(anchor: int) -> None:
+        nonlocal submitted_through
+        start = max(half, anchor - block_left, submitted_through + 1)
         end = anchor + block_right
+        submitted_through = max(submitted_through, end)
         if end < analysis_start_frame:
-            processed_through = max(processed_through, end)
+            pending.append((end, BlockResult(anchor, end, [], -1, {}, {})))
             return
         start = max(start, analysis_start_frame)
 
-        if use_prefilter:
-            passed = _cheap_prefilter_block(
-                get_frame, anchor, half, block_left, block_right, sw, cfg, profiler
-            )
-            if not passed:
-                profiler.inc("deep_blocks_skipped")
-                processed_through = max(processed_through, end)
-                return
-
-        t_model = time.perf_counter()
-        sampled = [get_frame(anchor + off) for off in sample_offsets]
-        background, _sigma, sigma_blur, median_sigma = _robust_temporal_model(
-            sampled, float(cfg["local_noise_floor"]), temporal_model_impl, temporal_scratch
-        )
-        if temporal_scratch is not None:
-            signal_threshold = temporal_scratch.signal_threshold
-            np.maximum(sigma_blur, 1.0, out=signal_threshold)
-            np.multiply(signal_threshold, float(cfg["local_sigma_threshold"]), out=signal_threshold)
-            np.maximum(signal_threshold, float(cfg["minimum_threshold"]), out=signal_threshold)
+        # Copy the frame references the block needs. They are refcounted, so the decoder is
+        # free to drop them from its buffer while a worker is still using them.
+        window_first = anchor - half
+        window = [get_frame(idx) for idx in range(window_first, anchor + half + 1)]
+        if executor is None:
+            pending.append((end, analyze_block(ctx, anchor, start, end, window, window_first)))
         else:
-            signal_threshold = np.maximum(
-                float(cfg["minimum_threshold"]),
-                float(cfg["local_sigma_threshold"]) * np.maximum(sigma_blur, 1.0),
-            ).astype(np.float32, copy=False)
-        profiler.add_time("temporal_model", time.perf_counter() - t_model)
-        profiler.inc("temporal_models")
+            pending.append((end, executor.submit(
+                analyze_block, ctx, anchor, start, end, window, window_first)))
 
-        for idx in range(start, end + 1):
-            center = get_frame(idx)
-            detection = find_candidates(
-                center,
-                background,
-                sigma_blur,
-                signal_threshold,
-                idx,
-                cfg,
-                profiler,
-                diagnostic_level,
-            )
-            cands = detection.candidates
-            if cands:
-                if ignore_camera_bumps and len(cands) > camera_bump_max_candidates:
-                    profiler.inc("camera_bump_frames")
-                    profiler.inc("camera_bump_candidates", len(cands))
-                    continue
-                all_candidates.extend(cands)
-                last_candidate_frame = max(last_candidate_frame, idx)
-                if cfg.get("diagnostic_jpegs", True):
-                    td = time.perf_counter()
-                    _write_diag(
-                        center,
-                        detection,
-                        idx,
-                        median_sigma,
-                        sigma_blur,
-                        signal_threshold,
-                        diag_dir,
-                        int(cfg["diagnostic_quality"]),
-                        int(info.get("rotation", 0)),
-                        diagnostic_level,
-                    )
-                    profiler.add_time("diagnostics", time.perf_counter() - td)
+    def merge_result(end: int, result: BlockResult) -> None:
+        nonlocal processed_through, last_candidate_frame
+        all_candidates.extend(result.candidates)
+        if result.last_candidate_frame >= 0:
+            last_candidate_frame = max(last_candidate_frame, result.last_candidate_frame)
+        for name, seconds in result.seconds.items():
+            profiler.add_time(name, seconds)
+        for name, value in result.counts.items():
+            profiler.inc(name, value)
         processed_through = max(processed_through, end)
+
+    def drain(max_inflight: int = 0) -> None:
+        while len(pending) > max_inflight:
+            end, item = pending.popleft()
+            if isinstance(item, Future):
+                # Time spent here is the pool falling behind the decoder, which is worth
+                # telling apart from decoding itself.
+                tw = time.perf_counter()
+                item = item.result()
+                profiler.add_time("block_wait", time.perf_counter() - tw)
+            merge_result(end, item)
+            maybe_write_checkpoint()
 
     def maybe_write_checkpoint() -> None:
         nonlocal next_checkpoint_frame
@@ -1208,6 +1637,7 @@ def scan_file(
             processed_through,
             all_candidates,
             profile_data=profile_data,
+            hardware_decoder=hw_method,
         )
         print(f"[{path.name}] partial progress saved: frame={processed_through} path={partial_output_path}", file=sys.stderr)
         next_checkpoint_frame = processed_through + checkpoint_interval_frames
@@ -1229,36 +1659,54 @@ def scan_file(
         print(f"[{path.name}] frame {processed_frames}{suffix}, candidates={len(all_candidates)}", file=sys.stderr)
         last_progress_reported = processed_frames
 
-    frames_iter = iter(iter_decoded_frames(path, sw, sh, cfg))
+    # OpenCV parallelises inside single calls. With a worker pool on top, both layers compete
+    # for the same cores, so hand the outer level the parallelism and restore the setting after.
+    opencv_threads = cv2.getNumThreads()
+    executor = None
+    if workers > 1:
+        cv2.setNumThreads(1)
+        executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="meteor-block")
+        print(f"[{path.name}] analysing blocks with {workers} worker threads", file=sys.stderr)
+    # Keep a couple of blocks queued per worker so decoding never waits on a free slot.
+    max_inflight = 0 if executor is None else workers * 2
+
+    frames_iter = iter(iter_decoded_frames(path, sw, sh, cfg, hw_method, hw_device))
     i = 0
-    while True:
-        td = time.perf_counter()
-        try:
-            frame = next(frames_iter)
-        except StopIteration:
-            break
-        profiler.add_time("decode_wait", time.perf_counter() - td)
-        profiler.inc("decoded_frames")
-        last_idx = i
-        buf.append((i, frame))
+    try:
+        while True:
+            td = time.perf_counter()
+            try:
+                frame = next(frames_iter)
+            except StopIteration:
+                break
+            profiler.add_time("decode_wait", time.perf_counter() - td)
+            profiler.inc("decoded_frames")
+            last_idx = i
+            buf.append((i, frame))
 
-        while i >= max(next_anchor + half, next_anchor + block_right):
-            process_anchor(next_anchor)
+            while i >= max(next_anchor + half, next_anchor + block_right):
+                submit_anchor(next_anchor)
+                next_anchor += model_stride
+                keep_from = min(next_anchor - half, submitted_through + 1)
+                while buf and buf[0][0] < keep_from:
+                    buf.popleft()
+                drain(max_inflight)
+            decoded_frame_count = i + 1
+            if decoded_frame_count % PROGRESS_LOG_INTERVAL_FRAMES == 0:
+                report_progress(decoded_frame_count)
+            i += 1
+            maybe_write_checkpoint()
+
+        max_target = last_idx - half
+        while next_anchor <= max_target and buf and next_anchor + half <= last_idx:
+            submit_anchor(next_anchor)
             next_anchor += model_stride
-            keep_from = min(next_anchor - half, processed_through + 1)
-            while buf and buf[0][0] < keep_from:
-                buf.popleft()
-        decoded_frame_count = i + 1
-        if decoded_frame_count % PROGRESS_LOG_INTERVAL_FRAMES == 0:
-            report_progress(decoded_frame_count)
-        i += 1
-        maybe_write_checkpoint()
-
-    max_target = last_idx - half
-    while next_anchor <= max_target and buf and next_anchor + half <= last_idx:
-        process_anchor(next_anchor)
-        next_anchor += model_stride
-        maybe_write_checkpoint()
+            drain(max_inflight)
+        drain()
+    finally:
+        if executor is not None:
+            executor.shutdown(cancel_futures=True)
+        cv2.setNumThreads(opencv_threads)
 
     if i and i != last_progress_reported:
         report_progress(i)
@@ -1274,6 +1722,7 @@ def scan_file(
         "path": str(path.resolve()),
         **info,
         "decoder": decoder,
+        "hardware_decoder": hw_method,
         "camera_class": camera_class,
         "scan_width": sw,
         "scan_height": sh,
@@ -1282,6 +1731,7 @@ def scan_file(
         "temporal_sample_stride": sample_stride,
         "temporal_model_stride": model_stride,
         "fast_prefilter": use_prefilter,
+        "worker_threads": workers,
         "ignore_camera_bumps": ignore_camera_bumps,
         "diagnostic_level": diagnostic_level,
         "events": [
@@ -1318,4 +1768,5 @@ def load_config(path: Path | None) -> dict[str, Any]:
         str(cfg.get("detector_algorithm", "optimized_temporal_median")),
         str(cfg.get("detector_algorithm", "optimized_temporal_median")),
     )
+    cfg["hardware_decoder"] = normalize_hardware_decoder(cfg.get("hardware_decoder"))
     return cfg

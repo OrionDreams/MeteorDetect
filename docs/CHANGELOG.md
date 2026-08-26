@@ -1,5 +1,60 @@
 # Changelog
 
+## Unreleased
+
+- Added `tools/algorithm-only-profiler-analysis.py`, which profiles detection with decoding
+  excluded by preloading frames into RAM and feeding `scan_file` from memory. It reports the
+  clip's decode ceiling alongside analysis throughput and worker scaling, which the built-in
+  `--profile` cannot separate because decode and analysis overlap there. On 4K H.264 it shows
+  analysis reaching about 840 fps at 6 workers against a ~200 fps decode ceiling, confirming
+  that scans are decode-bound.
+
+- Added parallel anchor-block analysis with `--workers` / the `worker_threads` config key.
+  Blocks are submitted and merged in anchor order, so results are byte-identical to the
+  sequential path; verified across the default config, an even sample count, both fallback
+  algorithms, the prefilter, camera-bump filtering, hardware decode and pause/resume. The gain
+  is about 1.1x normally and 1.3x on candidate-dense footage, peaking at 2-4 workers, so auto
+  selects at most 3 and more workers make it slower. Profiling established that the pipeline is
+  now decode-bound: with analysis removed entirely it reaches 202 fps against 166 fps in normal
+  scanning, and decoding in parallel chunks does not lift that ceiling. Further throughput work
+  should target decode cost rather than analysis. See docs/PERFORMANCE.md.
+
+  The performance report was reworked to suit this. Analysis stages are collected per worker
+  and summed, so they overlap the main thread's wall clock and previously produced percentages
+  adding up past 100%. Serial pipeline stages and analysis stages are now reported separately,
+  each against its own denominator, with the worker count and the analysis-to-wall overlap
+  factor. A `block_wait` stage tells main-thread time spent waiting on the pool apart from
+  decoding, and `worker_threads` is recorded in the profile JSON. `decode_wait` rising sharply
+  with workers enabled is expected rather than a regression: with analysis offloaded the main
+  thread only reads frames, so the figure converges on the true cost of decoding.
+
+- Replaced the temporal model's full sort network with a median selection network: Batcher's
+  odd-even mergesort pruned by backward liveness to the middle position(s). For the default 13
+  samples this is 39 comparators instead of 78, halving the work for identical order
+  statistics. Bit-exact, verified by the 0-1 principle exhaustively for every sample count up
+  to 16 and against the previous implementation across sample counts and value regimes. The
+  temporal model is about 1.5x faster and end-to-end scanning went from 126 to 144 fps on an
+  1800-frame 4K H.264 clip. With `--hw-decoder cuda` the same scan reaches 150 fps at 2.6 CPU
+  cores instead of 11.6, since the detector is now fast enough that software decode competes
+  with it for cores rather than filling idle ones.
+
+- Added opt-in hardware video decoding via `--hw-decoder` (`auto`, `vaapi`, `cuda`, `qsv`,
+  `videotoolbox`, `d3d11va`, `dxva2`) and `--hw-decoder-device`, with `hardware_decoder` and
+  `hardware_decoder_device` config keys. It stays off by default. Scaling remains on the CPU so
+  decoded frames are bit-identical to the software path and detection results cannot change.
+  Anything unavailable falls back to software decoding, and the decoder actually used is
+  recorded as `hardware_decoder` in the JSON output. Hardware decode lowers CPU cost from about
+  8 cores to 1.6 on a 4K H.264 clip rather than raising throughput; the freed cores matter for
+  future parallel scanning.
+
+- Sped up the `optimized_temporal_median` temporal model by about 1.6x by computing the MAD
+  on a uint16 deviation stack through the existing sort network instead of partitioning a
+  float32 stack. When the sample count is odd the background median is the middle sample and
+  is therefore an exact integer, so every `|frame - background|` fits a uint16 unchanged and
+  the result stays bit-exact; even sample counts keep the float32 path. End-to-end throughput
+  on a 4K test clip went from 121 to 167 fps, and temporal model scratch memory dropped from
+  63 MB to 38 MB.
+
 ## v0.2.4 Beta with Detector runtime 0.7.0
 
 - Added explicit app and detector-runtime version sources: the desktop app now uses .NET
