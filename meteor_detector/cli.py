@@ -100,6 +100,21 @@ def main() -> int:
         choices=("ffmpeg", "opencv"),
         help="Frame decoder backend. ffmpeg is the default and preserves the 16-bit grayscale path; opencv is experimental.",
     )
+    ap.add_argument(
+        "--hw-decoder",
+        metavar="METHOD",
+        help=(
+            "Offload video decoding to the GPU: none (default), auto, or a specific method "
+            "(vaapi, cuda, qsv, videotoolbox, d3d11va, dxva2). Scaling stays on the CPU, so "
+            "decoded frames stay identical to software decoding and detection is unaffected. "
+            "Falls back to software if the accelerator is unavailable for the machine or file."
+        ),
+    )
+    ap.add_argument(
+        "--hw-decoder-device",
+        metavar="PATH",
+        help="Device for --hw-decoder, e.g. /dev/dri/renderD129 for vaapi. Autodetected when omitted.",
+    )
     ap.add_argument("--fast-prefilter", action="store_true",
                     help="Enable experimental cheap temporal streak prefilter before robust analysis")
     ap.add_argument("--no-fast-prefilter", action="store_true",
@@ -126,6 +141,7 @@ def main() -> int:
         apply_detector_algorithm,
         load_config,
         load_scan_checkpoint,
+        normalize_hardware_decoder,
         scan_file,
     )
 
@@ -143,6 +159,13 @@ def main() -> int:
         cfg["diagnostic_jpegs"] = False
     if args.decoder:
         cfg["decoder"] = args.decoder
+    if args.hw_decoder:
+        try:
+            cfg["hardware_decoder"] = normalize_hardware_decoder(args.hw_decoder)
+        except ValueError as exc:
+            ap.error(str(exc))
+    if args.hw_decoder_device:
+        cfg["hardware_decoder_device"] = args.hw_decoder_device
     if str(cfg.get("decoder", "ffmpeg")).lower() == "ffmpeg" and not shutil.which("ffmpeg"):
         ap.error("ffmpeg must be installed and available on PATH when using --decoder ffmpeg")
     if args.fast_prefilter:
@@ -168,6 +191,9 @@ def main() -> int:
     print(f"Camera class: {cfg.get('camera_class', 'sony_mirrorless')}", file=sys.stderr)
     print(f"Detector algorithm: {cfg.get('detector_algorithm', 'optimized_temporal_median')}", file=sys.stderr)
     print(f"Decoder: {cfg.get('decoder', 'ffmpeg')}", file=sys.stderr)
+    if cfg.get("hardware_decoder", "none") != "none":
+        print(f"Hardware decoder requested: {cfg['hardware_decoder']} "
+              f"(falls back to software if unavailable)", file=sys.stderr)
     if cfg.get("fast_prefilter", False):
         print("Fast prefilter: ENABLED (experimental; validate recall on known meteors)", file=sys.stderr)
     if cfg.get("ignore_camera_bumps", False):

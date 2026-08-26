@@ -24,6 +24,12 @@ PARTIAL_CHECKPOINT_INTERVAL_FRAMES = 1000
 DEFAULT_CONFIG: dict[str, Any] = {
     "camera_class": "sony_mirrorless",
     "decoder": "ffmpeg",
+    # Off by default: hardware decode availability varies by machine, driver and codec, and
+    # the portable software path is the one every user is guaranteed to get. When enabled,
+    # scaling deliberately stays on the CPU so decoded frames remain bit-identical to the
+    # software path; only the codec reconstruction moves to the GPU. See docs/PERFORMANCE.md.
+    "hardware_decoder": "none",
+    "hardware_decoder_device": None,
     "detector_algorithm": "optimized_temporal_median",
     "scan_width": 960,
     "temporal_window_frames": 25,
@@ -341,10 +347,168 @@ def _scan_dimensions(width: int, height: int, scan_width: int) -> tuple[int, int
     return max(2, sw - sw % 2), max(2, sh - sh % 2)
 
 
-def ffmpeg_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
+HARDWARE_DECODER_CHOICES = ("none", "auto", "vaapi", "cuda", "qsv", "videotoolbox", "d3d11va", "dxva2")
+
+# Tried in this order when `hardware_decoder` is "auto". Only methods ffmpeg reports as
+# built in are attempted, and each is probed against the real file before being accepted.
+_HARDWARE_DECODER_AUTO_ORDER = ("videotoolbox", "vaapi", "cuda", "qsv", "d3d11va", "dxva2")
+
+
+def normalize_hardware_decoder(method: str | None) -> str:
+    selected = str(method or "none").strip().lower()
+    if selected in ("", "off", "software", "cpu"):
+        selected = "none"
+    if selected not in HARDWARE_DECODER_CHOICES:
+        choices = ", ".join(HARDWARE_DECODER_CHOICES)
+        raise ValueError(f"Unknown hardware decoder '{method}'. Choices: {choices}")
+    return selected
+
+
+def _hwaccel_args(method: str, device: str | None) -> list[str]:
+    """FFmpeg flags for `method`, leaving frames in system memory.
+
+    Deliberately omits `-hwaccel_output_format`, so ffmpeg downloads decoded frames and the
+    CPU filter chain still performs the area-averaged downscale. That keeps output identical
+    to software decoding: H.264/HEVC reconstruction is exact per spec, so a compliant
+    hardware decoder returns the same samples. Scaling on the GPU would be faster still, but
+    its scaler is not area-averaging and measurably shifts pixel values, which would change
+    detection results.
+    """
+    if method == "none":
+        return []
+    args = ["-hwaccel", method]
+    if device:
+        args += ["-hwaccel_device", device]
+    return args
+
+
+def available_hwaccels() -> list[str]:
+    try:
+        p = subprocess.run(["ffmpeg", "-hide_banner", "-hwaccels"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+    except Exception:
+        return []
+    if p.returncode != 0:
+        return []
+    lines = [line.strip() for line in p.stdout.splitlines()[1:]]
+    return [line for line in lines if line]
+
+
+def _candidate_hw_devices(method: str, device: str | None) -> list[str | None]:
+    if device:
+        return [device]
+    if method in ("vaapi", "qsv"):
+        # ffmpeg's default render node may belong to a GPU whose driver cannot decode (a
+        # discrete NVIDIA card exposes one but has no VAAPI driver), so try each in turn.
+        nodes = sorted(str(p) for p in Path("/dev/dri").glob("renderD*")) if Path("/dev/dri").is_dir() else []
+        return [*nodes, None] if nodes else [None]
+    return [None]
+
+
+# GPU surface pixel format each method decodes into, needed to force frames to stay on the
+# device during probing. Values are ffmpeg's own pix_fmt names.
+_HWACCEL_SURFACE_FORMAT = {
+    "vaapi": "vaapi",
+    "cuda": "cuda",
+    "qsv": "qsv",
+    "videotoolbox": "videotoolbox_vld",
+    "d3d11va": "d3d11",
+    "dxva2": "dxva2_vld",
+}
+
+# Tried in turn when downloading a probe frame, to cover 8-bit and 10-bit surfaces.
+_HW_DOWNLOAD_FORMATS = ("nv12", "p010", "yuv420p")
+
+
+def _probe_hardware_decoder(path: Path, method: str, device: str | None) -> bool:
+    """Confirm this accelerator genuinely decodes this file.
+
+    `-hwaccel` on its own is best effort: when the GPU cannot handle the codec, ffmpeg quietly
+    decodes in software and still exits 0, so a permissive probe would report acceleration that
+    is not happening (MPEG-4 part 2 does exactly this on current Intel and NVIDIA hardware).
+    Demanding `-hwaccel_output_format` keeps frames on the device, which only succeeds under
+    real hardware decode. The scan itself then runs without that flag, so frames come back to
+    system memory for the bit-exact CPU downscale.
+
+    Probing up front also matters because a decoder can initialize and then fail. Discovering
+    that mid-scan would strand a partly consumed frame generator, so the fallback decision is
+    made before the scan starts.
+    """
+    surface = _HWACCEL_SURFACE_FORMAT.get(method)
+    if surface is None:
+        return False
+    for download_format in _HW_DOWNLOAD_FORMATS:
+        cmd = ["ffmpeg", "-v", "error", "-nostdin", "-noautorotate"] + _hwaccel_args(method, device) + [
+            "-hwaccel_output_format", surface, "-i", str(path),
+            "-map", "0:v:0", "-an", "-sn", "-dn", "-frames:v", "2",
+            "-vf", f"hwdownload,format={download_format}", "-f", "null", "-",
+        ]
+        try:
+            p = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        except Exception:
+            continue
+        if p.returncode == 0:
+            return True
+    return False
+
+
+def resolve_hardware_decoder(
+    path: Path, cfg: dict[str, Any], codec: str | None = None
+) -> tuple[str, str | None]:
+    """Pick a working hardware decoder, or fall back to software.
+
+    Returns ("none", None) when disabled or when nothing usable is found, so a machine
+    without the right GPU or driver still scans instead of failing.
+    """
+    requested = normalize_hardware_decoder(cfg.get("hardware_decoder"))
+    if requested == "none":
+        return "none", None
+    if str(cfg.get("decoder", "ffmpeg")).lower() != "ffmpeg":
+        print("[hw] hardware decoding requires --decoder ffmpeg; using software decoding",
+              file=sys.stderr)
+        return "none", None
+
+    device = cfg.get("hardware_decoder_device") or None
+    built_in = available_hwaccels()
+    if requested == "auto":
+        methods = [m for m in _HARDWARE_DECODER_AUTO_ORDER if m in built_in]
+        if not methods:
+            print("[hw] this ffmpeg reports no usable hardware decoders; using software decoding",
+                  file=sys.stderr)
+            return "none", None
+    else:
+        if built_in and requested not in built_in:
+            print(f"[hw] ffmpeg was not built with '{requested}'; using software decoding",
+                  file=sys.stderr)
+            return "none", None
+        methods = [requested]
+
+    for method in methods:
+        for candidate in _candidate_hw_devices(method, device):
+            if _probe_hardware_decoder(path, method, candidate):
+                where = f" on {candidate}" if candidate else ""
+                print(f"[hw] hardware decoding enabled: {method}{where}", file=sys.stderr)
+                return method, candidate
+
+    tried = "/".join(methods)
+    detail = f" (codec {codec})" if codec else ""
+    print(f"[hw] no hardware decoder ({tried}) handles {path.name}{detail}; "
+          f"using software decoding", file=sys.stderr)
+    return "none", None
+
+
+def ffmpeg_frames(
+    path: Path,
+    width: int,
+    height: int,
+    hw_method: str = "none",
+    hw_device: str | None = None,
+) -> Iterable[np.ndarray]:
     vf = f"scale={width}:{height}:flags=area,format=gray16le"
     cmd = [
-        "ffmpeg", "-v", "error", "-nostdin", "-noautorotate", "-i", str(path),
+        "ffmpeg", "-v", "error", "-nostdin", "-noautorotate",
+        *_hwaccel_args(hw_method, hw_device),
+        "-i", str(path),
         "-map", "0:v:0", "-an", "-sn", "-dn", "-vf", vf,
         "-f", "rawvideo", "-pix_fmt", "gray16le", "pipe:1",
     ]
@@ -402,10 +566,17 @@ def opencv_frames(path: Path, width: int, height: int) -> Iterable[np.ndarray]:
         cap.release()
 
 
-def iter_decoded_frames(path: Path, width: int, height: int, cfg: dict[str, Any]) -> Iterable[np.ndarray]:
+def iter_decoded_frames(
+    path: Path,
+    width: int,
+    height: int,
+    cfg: dict[str, Any],
+    hw_method: str = "none",
+    hw_device: str | None = None,
+) -> Iterable[np.ndarray]:
     decoder = str(cfg.get("decoder", "ffmpeg")).lower()
     if decoder == "ffmpeg":
-        return ffmpeg_frames(path, width, height)
+        return ffmpeg_frames(path, width, height, hw_method, hw_device)
     if decoder == "opencv":
         return opencv_frames(path, width, height)
     raise ValueError(f"Unknown decoder '{decoder}'. Choices: ffmpeg, opencv")
@@ -893,12 +1064,17 @@ def _partial_payload(
     candidates: list[Candidate],
     events: list[Event],
     profile_data: dict[str, Any] | None = None,
+    hardware_decoder: str | None = None,
 ) -> dict[str, Any]:
     file_result = {
         "filename": path.name,
         "path": str(path.resolve()),
         **info,
         "decoder": str(cfg.get("decoder", "ffmpeg")),
+        # The decoder actually in use, which is "none" when a requested accelerator was
+        # unavailable and the scan fell back to software.
+        "hardware_decoder": hardware_decoder if hardware_decoder is not None
+        else normalize_hardware_decoder(cfg.get("hardware_decoder")),
         "camera_class": str(cfg.get("camera_class", "sony_mirrorless")),
         "scan_width": sw,
         "scan_height": sh,
@@ -945,9 +1121,11 @@ def write_partial_checkpoint(
     candidates: list[Candidate],
     events: list[Event] | None = None,
     profile_data: dict[str, Any] | None = None,
+    hardware_decoder: str | None = None,
 ) -> None:
     events = group_events(path.name, candidates, cfg) if events is None else events
-    payload = _partial_payload(path, info, sw, sh, cfg, frame_progress, candidates, events, profile_data)
+    payload = _partial_payload(path, info, sw, sh, cfg, frame_progress, candidates, events,
+                               profile_data, hardware_decoder)
     _atomic_write_json(partial_output_path, payload)
 
 
@@ -1108,6 +1286,7 @@ def scan_file(
     all_candidates: list[Candidate] = list(initial_candidates or [])
     algorithm = str(cfg.get("detector_algorithm", "optimized_temporal_median"))
     decoder = str(cfg.get("decoder", "ffmpeg"))
+    hw_method, hw_device = resolve_hardware_decoder(path, cfg, info.get("codec_name"))
     temporal_model_impl = str(cfg.get("temporal_model_impl", "median"))
     camera_class = str(cfg.get("camera_class", "sony_mirrorless"))
     diagnostic_level = int(cfg.get("diagnostic_level", 1))
@@ -1234,6 +1413,7 @@ def scan_file(
             processed_through,
             all_candidates,
             profile_data=profile_data,
+            hardware_decoder=hw_method,
         )
         print(f"[{path.name}] partial progress saved: frame={processed_through} path={partial_output_path}", file=sys.stderr)
         next_checkpoint_frame = processed_through + checkpoint_interval_frames
@@ -1255,7 +1435,7 @@ def scan_file(
         print(f"[{path.name}] frame {processed_frames}{suffix}, candidates={len(all_candidates)}", file=sys.stderr)
         last_progress_reported = processed_frames
 
-    frames_iter = iter(iter_decoded_frames(path, sw, sh, cfg))
+    frames_iter = iter(iter_decoded_frames(path, sw, sh, cfg, hw_method, hw_device))
     i = 0
     while True:
         td = time.perf_counter()
@@ -1300,6 +1480,7 @@ def scan_file(
         "path": str(path.resolve()),
         **info,
         "decoder": decoder,
+        "hardware_decoder": hw_method,
         "camera_class": camera_class,
         "scan_width": sw,
         "scan_height": sh,
@@ -1344,4 +1525,5 @@ def load_config(path: Path | None) -> dict[str, Any]:
         str(cfg.get("detector_algorithm", "optimized_temporal_median")),
         str(cfg.get("detector_algorithm", "optimized_temporal_median")),
     )
+    cfg["hardware_decoder"] = normalize_hardware_decoder(cfg.get("hardware_decoder"))
     return cfg

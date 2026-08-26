@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added opt-in hardware video decoding via `--hw-decoder` (`auto`, `vaapi`, `cuda`, `qsv`,
+  `videotoolbox`, `d3d11va`, `dxva2`) and `--hw-decoder-device`, with `hardware_decoder` and
+  `hardware_decoder_device` config keys. It stays off by default. Scaling remains on the CPU so
+  decoded frames are bit-identical to the software path and detection results cannot change.
+  Anything unavailable falls back to software decoding, and the decoder actually used is
+  recorded as `hardware_decoder` in the JSON output. Hardware decode lowers CPU cost from about
+  8 cores to 1.6 on a 4K H.264 clip rather than raising throughput; the freed cores matter for
+  future parallel scanning.
+
 - Sped up the `optimized_temporal_median` temporal model by about 1.6x by computing the MAD
   on a uint16 deviation stack through the existing sort network instead of partitioning a
   float32 stack. When the sample count is odd the background median is the middle sample and

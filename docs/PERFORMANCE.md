@@ -114,6 +114,31 @@ lost other baseline events and introduced a new event. Larger strides are not sa
 The older `temporal_median_mad` path remains available as a slower fallback when comparing
 results or investigating a suspected missed meteor.
 
+### Hardware decoding
+
+Off by default. `--hw-decoder auto` (or a specific `vaapi`/`cuda`/`qsv`/`videotoolbox`/
+`d3d11va`/`dxva2`) moves codec reconstruction to the GPU; `--hw-decoder-device` picks the
+device when autodetection guesses wrong. Anything unavailable falls back to software with a
+`[hw]` note on stderr, and the resolved decoder is recorded as `hardware_decoder` in the JSON.
+
+Scaling deliberately stays on the CPU. H.264/HEVC reconstruction is exact per spec, so a
+compliant hardware decoder returns the same samples and the decoded frames are bit-identical
+to the software path — verified by hashing the whole frame stream. Scaling on the GPU as well
+is faster still, but its scaler is not area-averaging: 2.4% of samples moved by more than one
+8-bit level, which would change detection and is why the option is not offered.
+
+**This does not make a single scan faster — it makes it cheaper.** Measured on a 4K H.264
+clip, end-to-end scan throughput drops (117 fps software vs 75-95 fps with hwaccel, because
+the CPU-side area scale loses ffmpeg's decode threading) while CPU cost falls from ~8 cores
+to ~1.6. The point is the freed cores: software decode is what would contend with parallel
+detection workers, so evaluate this together with parallelism rather than on its own, where
+it measures as a regression.
+
+Note that `-hwaccel` alone is best effort — ffmpeg silently decodes in software when the GPU
+cannot handle the codec, and still exits 0. MPEG-4 part 2 does exactly this on current Intel
+and NVIDIA hardware. The detector therefore probes with `-hwaccel_output_format` before
+committing, so a reported `hardware_decoder` means acceleration actually happened.
+
 ### Parallelism
 
 Parallelism can help, but should follow single-process profiling.
