@@ -1,0 +1,20 @@
+FFmpeg 9.0.1 for macOS Apple Silicon (ARM64)
+
+Provider/build repository:
+https://github.com/OrionDreams/ffmpeg-apple-silicon
+
+Pinned release:
+v0.2.1
+
+Build type:
+Full static ARM64 build
+
+License:
+GNU General Public License version 3 compatible build
+(`--enable-gpl --enable-version3`)
+
+FFmpeg project:
+https://ffmpeg.org/
+
+FFmpeg source:
+https://github.com/FFmpeg/FFmpeg

@@ -1,0 +1,20 @@
+FFmpeg 9.0.1 for macOS x86_64
+
+MeteorDetect macOS Intel FFmpeg build:
+Provider: Evermeet
+Target version: FFmpeg 9.0.1
+Architecture: x86_64
+Static build
+
+Provider: Evermeet
+https://evermeet.cx/ffmpeg/
+
+This binary is distributed as a static FFmpeg build configured with
+GPL-compatible components. FFmpeg is licensed under the GNU General
+Public License when GPL components are enabled.
+
+FFmpeg project:
+https://ffmpeg.org/
+
+FFmpeg source:
+https://github.com/FFmpeg/FFmpeg

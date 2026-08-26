@@ -1,0 +1,9 @@
+Assembled: 2026-08-26
+
+Local source versions used for files copied from installed packages:
+- NumPy: 2.3.5
+- opencv-python-headless: 4.13.0.92
+- CPython license source: system Python 3.13
+
+These are NOT necessarily the versions currently shipped by MeteorDetect because its
+Python release dependencies are not fully pinned.
