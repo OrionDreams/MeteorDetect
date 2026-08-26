@@ -69,6 +69,16 @@ def main() -> int:
         help="Write one JSON per source clip by default; use combined for the legacy multi-clip JSON",
     )
     ap.add_argument("--config", type=Path, help="JSON config file; see config.example.json")
+    ap.add_argument(
+        "--camera-class",
+        help="Camera tuning profile: sony_mirrorless or noisy_camera",
+    )
+    ap.add_argument(
+        "--diagnostic-level",
+        type=int,
+        choices=(1, 2),
+        help="Diagnostic detail level. Level 1 writes annotated candidate JPEGs; level 2 adds residual/mask/map images and candidate stats.",
+    )
     ap.add_argument("--no-diagnostics", action="store_true", help="Do not write candidate JPEGs")
     ap.add_argument("--profile", action="store_true", help="Print stage timings/counters and include them in JSON")
     ap.add_argument(
@@ -106,6 +116,7 @@ def main() -> int:
 
     from meteor_detector.detector import (
         PauseRequested,
+        apply_camera_class,
         apply_detector_algorithm,
         load_config,
         load_scan_checkpoint,
@@ -114,10 +125,14 @@ def main() -> int:
 
     cfg = load_config(args.config)
     try:
+        if args.camera_class:
+            apply_camera_class(cfg, args.camera_class)
         if args.detector_algorithm:
             apply_detector_algorithm(cfg, args.detector_algorithm)
     except ValueError as exc:
         ap.error(str(exc))
+    if args.diagnostic_level is not None:
+        cfg["diagnostic_level"] = args.diagnostic_level
     if args.no_diagnostics:
         cfg["diagnostic_jpegs"] = False
     if args.decoder:
@@ -144,6 +159,7 @@ def main() -> int:
         ap.error("No supported video files found")
 
     print(f"Meteor Detector v{__version__}: scanning {len(files)} file(s)", file=sys.stderr)
+    print(f"Camera class: {cfg.get('camera_class', 'sony_mirrorless')}", file=sys.stderr)
     print(f"Detector algorithm: {cfg.get('detector_algorithm', 'optimized_temporal_median')}", file=sys.stderr)
     print(f"Decoder: {cfg.get('decoder', 'ffmpeg')}", file=sys.stderr)
     if cfg.get("fast_prefilter", False):

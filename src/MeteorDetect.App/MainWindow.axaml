@@ -190,6 +190,12 @@
                             <TextBlock Classes="secondary" Text="Batch detection runs through the Python detector and writes JSON for Resolve import."/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Camera Class" Classes="secondary"/>
+                                <ComboBox ItemsSource="{Binding CameraClassOptions}"
+                                          SelectedItem="{Binding SelectedCameraClass, Mode=TwoWay}"
+                                          MinWidth="250"/>
+                            </StackPanel>
                             <CheckBox Content="Ignore camera bumps"
                                       IsChecked="{Binding IgnoreCameraBumps}"
                                       ToolTip.Tip="Use this only if the camera was moved while recording."/>
@@ -371,6 +377,13 @@
                                       SelectedItem="{Binding SelectedDetectorDecoder, Mode=TwoWay}"
                                       MinWidth="360"/>
                             <TextBlock Text="{Binding SelectedDetectorDecoder.Description}"
+                                       Classes="secondary"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="Diagnostic Level" Classes="secondary" Margin="0,8,0,0"/>
+                            <ComboBox ItemsSource="{Binding DiagnosticLevelOptions}"
+                                      SelectedItem="{Binding SelectedDiagnosticLevel, Mode=TwoWay}"
+                                      MinWidth="360"/>
+                            <TextBlock Text="{Binding SelectedDiagnosticLevel.Description}"
                                        Classes="secondary"
                                        TextWrapping="Wrap"/>
                         </StackPanel>

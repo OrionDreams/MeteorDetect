@@ -18,6 +18,10 @@ public sealed class AppSettings
 
     public string DetectorAlgorithm { get; set; } = DetectorAlgorithms.OptimizedTemporalMedian;
 
+    public string CameraClass { get; set; } = CameraClasses.SonyMirrorless;
+
+    public int DiagnosticLevel { get; set; } = DiagnosticLevels.Standard;
+
     public string DetectorDecoder { get; set; } = DetectorDecoders.Ffmpeg;
 
     public bool FastPrefilter { get; set; }

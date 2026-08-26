@@ -22,6 +22,7 @@ PARTIAL_CHECKPOINT_INTERVAL_FRAMES = 1000
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
+    "camera_class": "sony_mirrorless",
     "decoder": "ffmpeg",
     "detector_algorithm": "optimized_temporal_median",
     "scan_width": 960,
@@ -45,6 +46,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "single_frame_min_peak_sigma": 5.5,
     "single_frame_min_peak_signal": 700.0,
     "diagnostic_jpegs": True,
+    "diagnostic_level": 1,
     "diagnostic_quality": 92,
     "include_candidates_in_json": False,
     "ignore_camera_bumps": False,
@@ -61,6 +63,30 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "prefilter_min_elongation": 1.6,
     "prefilter_max_streak_width": 10.0,
     "prefilter_margin_frames": 8,
+}
+
+CAMERA_CLASSES: dict[str, dict[str, Any]] = {
+    "sony_mirrorless": {},
+    "noisy_camera": {
+        "local_sigma_threshold": 7.5,
+        "local_noise_floor": 128.0,
+        "minimum_threshold": 900.0,
+        "minimum_component_area": 12,
+        "minimum_streak_length": 22.0,
+        "minimum_elongation": 6.0,
+        "maximum_streak_width": 4.0,
+        "single_frame_min_streak_length": 24.0,
+        "single_frame_min_elongation": 7.0,
+        "single_frame_min_peak_sigma": 8.0,
+        "single_frame_min_peak_signal": 1200.0,
+    },
+}
+
+CAMERA_CLASS_ALIASES: dict[str, str] = {
+    "sony": "sony_mirrorless",
+    "mirrorless": "sony_mirrorless",
+    "noisy": "noisy_camera",
+    "noisy_video": "noisy_camera",
 }
 
 DETECTOR_ALGORITHMS: dict[str, dict[str, Any]] = {
@@ -128,6 +154,15 @@ class ScanCheckpoint:
 
 
 @dataclass
+class CandidateDetection:
+    candidates: list[Candidate]
+    threshold: float
+    residual: np.ndarray | None = None
+    blurred_residual: np.ndarray | None = None
+    threshold_mask: np.ndarray | None = None
+
+
+@dataclass
 class PauseRequested(Exception):
     frame_progress: int
     partial_output_path: Path
@@ -186,6 +221,62 @@ def _run_json(cmd: list[str]) -> dict[str, Any]:
     return json.loads(p.stdout)
 
 
+def _parse_rate(value: Any) -> Fraction | None:
+    text = str(value or "")
+    if not text or text == "0/0":
+        return None
+    try:
+        rate = Fraction(text)
+    except (ValueError, ZeroDivisionError):
+        return None
+    return rate if rate > 0 else None
+
+
+def _metadata_frame_rates(stream: dict[str, Any]) -> tuple[Fraction, Fraction | None, Fraction | None]:
+    avg = _parse_rate(stream.get("avg_frame_rate"))
+    nominal = _parse_rate(stream.get("r_frame_rate"))
+    selected = avg or nominal
+    if selected is None:
+        raise RuntimeError("Video stream does not report a usable frame rate")
+    if avg is not None and nominal is not None:
+        ratio = float(avg / nominal)
+        if ratio < 0.8 or ratio > 1.25:
+            selected = nominal
+    return selected, avg, nominal
+
+
+def _count_video_packets(path: Path) -> int | None:
+    try:
+        data = _run_json([
+            "ffprobe", "-v", "error", "-count_packets", "-select_streams", "v:0",
+            "-show_entries", "stream=nb_read_packets", "-of", "json", str(path),
+        ])
+    except Exception:
+        return None
+    streams = data.get("streams", [])
+    if not streams:
+        return None
+    value = streams[0].get("nb_read_packets")
+    return int(value) if str(value).isdigit() else None
+
+
+def _estimated_frame_count(path: Path, stream: dict[str, Any], duration: float, selected_fps: Fraction) -> int | None:
+    nb_frames = None
+    if str(stream.get("nb_frames", "")).isdigit():
+        nb_frames = int(stream["nb_frames"])
+    if nb_frames is not None or duration <= 0:
+        return nb_frames
+
+    estimate_fps = selected_fps
+    avg = _parse_rate(stream.get("avg_frame_rate"))
+    nominal = _parse_rate(stream.get("r_frame_rate"))
+    if avg is not None and nominal is not None:
+        ratio = float(avg / nominal)
+        if ratio < 0.8 or ratio > 1.25:
+            return _count_video_packets(path) or int(round(duration * float(nominal)))
+    return int(round(duration * float(estimate_fps)))
+
+
 def probe_video(path: Path) -> dict[str, Any]:
     data = _run_json([
         "ffprobe", "-v", "error", "-select_streams", "v:0",
@@ -197,8 +288,7 @@ def probe_video(path: Path) -> dict[str, Any]:
     if not streams:
         raise RuntimeError(f"No video stream found in {path}")
     s = streams[0]
-    rate = s.get("avg_frame_rate") or s.get("r_frame_rate")
-    fps = Fraction(rate)
+    fps, avg_fps, nominal_fps = _metadata_frame_rates(s)
     rotation = 0
     tags = s.get("tags") or {}
     if "rotate" in tags:
@@ -213,11 +303,7 @@ def probe_video(path: Path) -> dict[str, Any]:
             except Exception:
                 pass
     duration = float(s.get("duration") or 0.0)
-    nb_frames = None
-    if str(s.get("nb_frames", "")).isdigit():
-        nb_frames = int(s["nb_frames"])
-    if nb_frames is None and duration > 0:
-        nb_frames = int(round(duration * float(fps)))
+    nb_frames = _estimated_frame_count(path, s, duration, fps)
     return {
         "codec_name": s.get("codec_name"),
         "width": int(s["width"]),
@@ -225,6 +311,8 @@ def probe_video(path: Path) -> dict[str, Any]:
         "pix_fmt": s.get("pix_fmt"),
         "fps_num": fps.numerator,
         "fps_den": fps.denominator,
+        "avg_frame_rate": str(avg_fps) if avg_fps is not None else None,
+        "r_frame_rate": str(nominal_fps) if nominal_fps is not None else None,
         "time_base": s.get("time_base"),
         "rotation": rotation,
         "duration_seconds": duration,
@@ -319,6 +407,22 @@ def apply_detector_algorithm(cfg: dict[str, Any], algorithm: str | None = None) 
         raise ValueError(f"Unknown detector algorithm '{selected}'. Choices: {choices}")
     cfg["detector_algorithm"] = selected
     cfg.update(DETECTOR_ALGORITHMS[selected])
+
+
+def normalize_camera_class(camera_class: str | None) -> str:
+    selected = str(camera_class or "sony_mirrorless").strip().lower()
+    selected = selected.replace(" ", "_").replace("-", "_")
+    selected = CAMERA_CLASS_ALIASES.get(selected, selected)
+    if selected not in CAMERA_CLASSES:
+        choices = ", ".join(sorted(CAMERA_CLASSES))
+        raise ValueError(f"Unknown camera class '{camera_class}'. Choices: {choices}")
+    return selected
+
+
+def apply_camera_class(cfg: dict[str, Any], camera_class: str | None = None) -> None:
+    selected = normalize_camera_class(camera_class or str(cfg.get("camera_class") or "sony_mirrorless"))
+    cfg["camera_class"] = selected
+    cfg.update(CAMERA_CLASSES[selected])
 
 
 def _median_axis0_exact(stack: np.ndarray) -> np.ndarray:
@@ -547,13 +651,15 @@ def find_candidates(
     frame_index: int,
     cfg: dict[str, Any],
     profiler: Profiler,
-) -> tuple[list[Candidate], float]:
+    diagnostic_level: int = 1,
+) -> CandidateDetection:
     t0 = time.perf_counter()
     residual = center.astype(np.float32) - background
     np.maximum(residual, 0.0, out=residual)
     work = cv2.GaussianBlur(residual, (3, 3), 0)
     abs_threshold = float(cfg["minimum_threshold"])
     mask = (work >= signal_threshold).astype(np.uint8) * 255
+    diagnostic_mask = mask.copy() if diagnostic_level >= 2 else None
     profiler.add_time("residual_blur_threshold", time.perf_counter() - t0)
 
     # Cheap empty-mask rejection avoids morphology and connected-components work on quiet frames.
@@ -562,7 +668,13 @@ def find_candidates(
     if cv2.countNonZero(mask) < int(cfg["minimum_component_area"]):
         profiler.inc("empty_masks")
         profiler.add_time("mask_morphology_components", time.perf_counter() - t1)
-        return [], abs_threshold
+        return CandidateDetection(
+            [],
+            abs_threshold,
+            residual=residual if diagnostic_level >= 2 else None,
+            blurred_residual=work if diagnostic_level >= 2 else None,
+            threshold_mask=diagnostic_mask,
+        )
 
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((2, 2), np.uint8))
     n, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
@@ -604,7 +716,13 @@ def find_candidates(
         profiler.inc("candidate_frames")
         profiler.inc("candidates", len(out))
     profiler.add_time("component_geometry", time.perf_counter() - t2)
-    return out, abs_threshold
+    return CandidateDetection(
+        out,
+        abs_threshold,
+        residual=residual if diagnostic_level >= 2 else None,
+        blurred_residual=work if diagnostic_level >= 2 else None,
+        threshold_mask=diagnostic_mask,
+    )
 
 
 def _angle_difference(a: float, b: float) -> float:
@@ -755,6 +873,7 @@ def _partial_payload(
         "path": str(path.resolve()),
         **info,
         "decoder": str(cfg.get("decoder", "ffmpeg")),
+        "camera_class": str(cfg.get("camera_class", "sony_mirrorless")),
         "scan_width": sw,
         "scan_height": sh,
         "detector_algorithm": str(cfg.get("detector_algorithm", "optimized_temporal_median")),
@@ -763,6 +882,7 @@ def _partial_payload(
         "temporal_model_stride": int(cfg.get("temporal_model_stride", 1)),
         "fast_prefilter": bool(cfg.get("fast_prefilter", False)),
         "ignore_camera_bumps": bool(cfg.get("ignore_camera_bumps", False)),
+        "diagnostic_level": int(cfg.get("diagnostic_level", 1)),
         "partial": True,
         "frame_progress": frame_progress,
         "events": [
@@ -816,20 +936,61 @@ def _rotate_for_display(img: np.ndarray, rotation: int) -> np.ndarray:
     return img
 
 
-def _write_diag(frame_u16: np.ndarray, candidates: list[Candidate], frame_idx: int,
-                threshold: float, noise: float, diag_dir: Path, quality: int, rotation: int) -> None:
+def _float_to_u8(img: np.ndarray, percentiles: tuple[float, float] = (0.5, 99.8)) -> np.ndarray:
+    lo, hi = np.percentile(img, percentiles)
+    if hi <= lo:
+        hi = lo + 1
+    return np.clip((img.astype(np.float32) - lo) * 255.0 / (hi - lo), 0, 255).astype(np.uint8)
+
+
+def _write_diag_image(path: Path, img: np.ndarray, quality: int, rotation: int) -> None:
+    view = _rotate_for_display(img, rotation)
+    cv2.imwrite(str(path), view, [cv2.IMWRITE_JPEG_QUALITY, quality])
+
+
+def _write_diag(frame_u16: np.ndarray, detection: CandidateDetection, frame_idx: int,
+                noise: float, sigma_blur: np.ndarray, signal_threshold: np.ndarray,
+                diag_dir: Path, quality: int, rotation: int, diagnostic_level: int) -> None:
     lo, hi = np.percentile(frame_u16, [0.5, 99.8])
     if hi <= lo:
         hi = lo + 1
     view = np.clip((frame_u16.astype(np.float32) - lo) * 255.0 / (hi - lo), 0, 255).astype(np.uint8)
     view = cv2.cvtColor(view, cv2.COLOR_GRAY2BGR)
-    for c in candidates:
+    for c in detection.candidates:
         cv2.rectangle(view, (c.x, c.y), (c.x + c.w, c.y + c.h), (255, 255, 255), 1)
-    cv2.putText(view, f"frame {frame_idx}  abs thr {threshold:.0f}  model noise {noise:.1f}",
+    cv2.putText(view, f"frame {frame_idx}  abs thr {detection.threshold:.0f}  model noise {noise:.1f}",
                 (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
-    view = _rotate_for_display(view, rotation)
-    cv2.imwrite(str(diag_dir / f"frame_{frame_idx:08d}.jpg"), view,
-                [cv2.IMWRITE_JPEG_QUALITY, quality])
+    _write_diag_image(diag_dir / f"frame_{frame_idx:08d}.jpg", view, quality, rotation)
+
+    if diagnostic_level < 2:
+        return
+
+    base = diag_dir / f"frame_{frame_idx:08d}"
+    if detection.residual is not None:
+        _write_diag_image(base.with_name(f"{base.name}_residual.jpg"),
+                          _float_to_u8(detection.residual), quality, rotation)
+    if detection.blurred_residual is not None:
+        _write_diag_image(base.with_name(f"{base.name}_residual_blur.jpg"),
+                          _float_to_u8(detection.blurred_residual), quality, rotation)
+    if detection.threshold_mask is not None:
+        _write_diag_image(base.with_name(f"{base.name}_threshold_mask.jpg"),
+                          detection.threshold_mask, quality, rotation)
+
+    _write_diag_image(base.with_name(f"{base.name}_sigma.jpg"),
+                      _float_to_u8(sigma_blur), quality, rotation)
+    _write_diag_image(base.with_name(f"{base.name}_threshold.jpg"),
+                      _float_to_u8(signal_threshold), quality, rotation)
+
+    stats = {
+        "frame": frame_idx,
+        "minimum_threshold": detection.threshold,
+        "median_model_noise": noise,
+        "candidate_count": len(detection.candidates),
+        "candidates": [asdict(c) for c in detection.candidates],
+    }
+    with base.with_name(f"{base.name}_candidates.json").open("w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2)
+        f.write("\n")
 
 
 def format_profile(profile: dict[str, Any], filename: str) -> str:
@@ -922,6 +1083,10 @@ def scan_file(
     algorithm = str(cfg.get("detector_algorithm", "optimized_temporal_median"))
     decoder = str(cfg.get("decoder", "ffmpeg"))
     temporal_model_impl = str(cfg.get("temporal_model_impl", "median"))
+    camera_class = str(cfg.get("camera_class", "sony_mirrorless"))
+    diagnostic_level = int(cfg.get("diagnostic_level", 1))
+    if diagnostic_level not in (1, 2):
+        raise ValueError("diagnostic_level must be 1 or 2")
     use_prefilter = bool(cfg.get("fast_prefilter", False))
     ignore_camera_bumps = bool(cfg.get("ignore_camera_bumps", False))
     camera_bump_max_candidates = int(cfg.get("camera_bump_max_candidates_per_frame", 15))
@@ -981,7 +1146,17 @@ def scan_file(
 
         for idx in range(start, end + 1):
             center = get_frame(idx)
-            cands, threshold = find_candidates(center, background, sigma_blur, signal_threshold, idx, cfg, profiler)
+            detection = find_candidates(
+                center,
+                background,
+                sigma_blur,
+                signal_threshold,
+                idx,
+                cfg,
+                profiler,
+                diagnostic_level,
+            )
+            cands = detection.candidates
             if cands:
                 if ignore_camera_bumps and len(cands) > camera_bump_max_candidates:
                     profiler.inc("camera_bump_frames")
@@ -991,8 +1166,18 @@ def scan_file(
                 last_candidate_frame = max(last_candidate_frame, idx)
                 if cfg.get("diagnostic_jpegs", True):
                     td = time.perf_counter()
-                    _write_diag(center, cands, idx, threshold, median_sigma, diag_dir,
-                                int(cfg["diagnostic_quality"]), int(info.get("rotation", 0)))
+                    _write_diag(
+                        center,
+                        detection,
+                        idx,
+                        median_sigma,
+                        sigma_blur,
+                        signal_threshold,
+                        diag_dir,
+                        int(cfg["diagnostic_quality"]),
+                        int(info.get("rotation", 0)),
+                        diagnostic_level,
+                    )
                     profiler.add_time("diagnostics", time.perf_counter() - td)
         processed_through = max(processed_through, end)
 
@@ -1089,6 +1274,7 @@ def scan_file(
         "path": str(path.resolve()),
         **info,
         "decoder": decoder,
+        "camera_class": camera_class,
         "scan_width": sw,
         "scan_height": sh,
         "detector_algorithm": algorithm,
@@ -1097,6 +1283,7 @@ def scan_file(
         "temporal_model_stride": model_stride,
         "fast_prefilter": use_prefilter,
         "ignore_camera_bumps": ignore_camera_bumps,
+        "diagnostic_level": diagnostic_level,
         "events": [
             {k: v for k, v in asdict(e).items() if v is not None}
             for e in events
@@ -1117,14 +1304,16 @@ def load_config(path: Path | None) -> dict[str, Any]:
         if not isinstance(loaded, dict):
             raise ValueError("Config JSON must contain an object")
         user = loaded
-        cfg.update(user)
-        if "detector_algorithm" not in user and bool(user.get("fast_prefilter", False)):
-            cfg["detector_algorithm"] = "temporal_median_mad_prefilter"
 
+    apply_camera_class(cfg, user.get("camera_class", cfg.get("camera_class")))
+    cfg.update(user)
+    if "detector_algorithm" not in user and bool(user.get("fast_prefilter", False)):
+        cfg["detector_algorithm"] = "temporal_median_mad_prefilter"
     apply_detector_algorithm(cfg)
     cfg.update(user)
     if "detector_algorithm" not in user and bool(user.get("fast_prefilter", False)):
         cfg["detector_algorithm"] = "temporal_median_mad_prefilter"
+    cfg["camera_class"] = normalize_camera_class(str(cfg.get("camera_class", "sony_mirrorless")))
     cfg["detector_algorithm"] = DETECTOR_ALGORITHM_ALIASES.get(
         str(cfg.get("detector_algorithm", "optimized_temporal_median")),
         str(cfg.get("detector_algorithm", "optimized_temporal_median")),

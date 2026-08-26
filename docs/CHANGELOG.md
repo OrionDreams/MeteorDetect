@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Added camera-class tuning profiles with `sony_mirrorless` as the default and `noisy_camera`
+  as a stricter profile for noisy or heavily processed night video.
+- Added diagnostic level 2 with residual, threshold-mask, sigma-map, threshold-map and
+  candidate-stat sidecars for candidate frames.
+
 ## v0.2.3 Beta with Detector runtime 0.6.0
 
 - Added a GitHub Actions release workflow for tag-triggered packaging.
