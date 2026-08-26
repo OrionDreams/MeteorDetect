@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 Beta with Detector runtime 0.8.0
+
+- Settled on GPL-v3 License for MeteorDetect
+
+- Pinned ffmpeg v9.0.1 for Linux/Windows/Mac; GPL-Compatible so it can be redistributed
+
+- Added third-party-notices for all dependencies
 
 - Added `tools/algorithm-only-profiler-analysis.py`, which profiles detection with decoding
   excluded by preloading frames into RAM and feeding `scan_file` from memory. It reports the
