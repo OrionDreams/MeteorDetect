@@ -85,15 +85,21 @@ Do not implement all of these at once. Measure first.
 
 Already applied in `optimized_temporal_median`:
 
-- exact temporal median/MAD, computed via a vectorized odd-even transposition sort network
-  over uint16 stacks (numpy's `partition` kernel is not well vectorized for small uint16
-  stacks; the sort network is ~8x faster there and verified bit-exact against the partition
-  result). With an odd sample count the background median is the middle sample, so it is
-  always an exact integer and every `|frame - background|` fits a uint16 unchanged; the MAD
-  therefore runs on a uint16 deviation stack through the same sort network, about 2.5x
-  faster than partitioning a float32 stack and bit-exact against it. An even sample count
-  averages the two middle samples and can land on a half-integer, so it keeps the float32
-  `np.partition` path;
+- exact temporal median/MAD, computed via a vectorized comparator network over uint16 stacks
+  (numpy's `partition` kernel is not well vectorized for small uint16 stacks; the network is
+  ~8x faster there and verified bit-exact against the partition result). With an odd sample
+  count the background median is the middle sample, so it is always an exact integer and every
+  `|frame - background|` fits a uint16 unchanged; the MAD therefore runs on a uint16 deviation
+  stack through the same network, about 2.5x faster than partitioning a float32 stack and
+  bit-exact against it. An even sample count averages the two middle samples and can land on a
+  half-integer, so it keeps the float32 `np.partition` path;
+- a median *selection* network rather than a full sort. Batcher's odd-even mergesort is pruned
+  by backward liveness to the middle position(s), dropping every comparator that cannot
+  influence the median. For the default 13 samples that is 39 comparators against the 78 of the
+  odd-even transposition sort it replaced (25 samples: 300 -> 113). Each comparator is two
+  full-array passes, so cost tracks comparator count. Order statistics are unchanged, so this
+  is bit-exact; correctness is checked by the 0-1 principle, exhaustively for every sample
+  count up to 16;
 - reusable temporal model scratch buffers;
 - precomputed local threshold map per temporal model;
 - no full-frame `z` temporary during candidate extraction.
@@ -127,12 +133,20 @@ to the software path — verified by hashing the whole frame stream. Scaling on 
 is faster still, but its scaler is not area-averaging: 2.4% of samples moved by more than one
 8-bit level, which would change detection and is why the option is not offered.
 
-**This does not make a single scan faster — it makes it cheaper.** Measured on a 4K H.264
-clip, end-to-end scan throughput drops (117 fps software vs 75-95 fps with hwaccel, because
-the CPU-side area scale loses ffmpeg's decode threading) while CPU cost falls from ~8 cores
-to ~1.6. The point is the freed cores: software decode is what would contend with parallel
-detection workers, so evaluate this together with parallelism rather than on its own, where
-it measures as a regression.
+The trade changed once the detector got fast enough to contend with software decode. Software
+decode spends ~9-12 cores, and while the detector was the slow side that was free parallelism;
+now it is competition for cores and memory bandwidth. On the 1800-frame 4K H.264 clip:
+
+| Variant | fps | CPU cores |
+| --- | --- | --- |
+| software decode | 144 | 11.6 |
+| `--hw-decoder cuda` | 150 | 2.6 |
+| `--hw-decoder auto` (vaapi) | 146 | 2.7 |
+
+So hardware decode is now marginally faster *and* about 4.4x cheaper in CPU. On earlier,
+slower revisions of the detector it measured as a throughput regression, because the CPU-side
+area scale loses ffmpeg's decode threading and nothing else was competing. Expect the gap to
+widen with parallel detection, where those freed cores are the whole point.
 
 Note that `-hwaccel` alone is best effort — ffmpeg silently decodes in software when the GPU
 cannot handle the codec, and still exits 0. MPEG-4 part 2 does exactly this on current Intel

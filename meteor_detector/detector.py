@@ -8,6 +8,7 @@ import time
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass
 from fractions import Fraction
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -181,12 +182,12 @@ class TemporalModelScratch:
         self.sigma = np.empty(frame_shape, dtype=np.float32)
         self.sigma_blur = np.empty(frame_shape, dtype=np.float32)
         self.signal_threshold = np.empty(frame_shape, dtype=np.float32)
-        # One extra buffer beyond sample_count acts as the sort network's rotating spare slot.
-        self.sortnet_pool = [np.empty(frame_shape, dtype=np.uint16) for _ in range(sample_count + 1)]
+        # One extra buffer beyond sample_count acts as the selection network's rotating spare slot.
+        self.selection_pool = [np.empty(frame_shape, dtype=np.uint16) for _ in range(sample_count + 1)]
 
         # An odd sample count takes the middle sample as the median, so the temporal background
         # is always an exact integer and every |frame - background| fits a uint16 unchanged. The
-        # deviation stack can then stay in uint16 and reuse the sort network, which is much
+        # deviation stack can then stay in uint16 and reuse the selection network, which is much
         # faster than partitioning a float32 stack. An even count averages the two middle
         # samples and can land on a half-integer, so that case keeps the float32 stack.
         self.integer_medians = sample_count % 2 == 1
@@ -646,10 +647,52 @@ def _robust_temporal_model_median(sampled_frames: list[np.ndarray], noise_floor:
     return background.astype(np.float32, copy=False), sigma, sigma_blur, median_sigma
 
 
-def _median_axis0_sortnet_inplace(
+def _batcher_odd_even_mergesort(count: int) -> list[tuple[int, int]]:
+    """Comparator pairs of Batcher's odd-even mergesort, valid for any `count`."""
+    comparators: list[tuple[int, int]] = []
+    p = 1
+    while p < count:
+        k = p
+        while k >= 1:
+            for j in range(k % p, count - k, 2 * k):
+                for i in range(min(k, count - j - k)):
+                    if (i + j) // (p * 2) == (i + j + k) // (p * 2):
+                        comparators.append((i + j, i + j + k))
+            k //= 2
+        p *= 2
+    return comparators
+
+
+@lru_cache(maxsize=64)
+def _median_selection_network(count: int) -> tuple[tuple[int, int], ...]:
+    """Comparators that place the median order statistic(s) correctly, and nothing else.
+
+    Starts from Batcher's odd-even mergesort, then drops every comparator that cannot
+    influence the middle position(s) by walking the network backwards and keeping only
+    comparators touching a live wire. The result is a selection network rather than a sorting
+    network: positions outside the middle are left in arbitrary order, which is fine because
+    only the middle is ever read.
+
+    For the default 13 samples this is 39 comparators against the 78 of the odd-even
+    transposition sort it replaces, for identical order statistics. Both middle positions are
+    targeted for an even count, which needs slots[mid - 1] and slots[mid] to average.
+    """
+    targets = {count // 2} if count % 2 else {count // 2 - 1, count // 2}
+    live = set(targets)
+    kept: list[tuple[int, int]] = []
+    for i, j in reversed(_batcher_odd_even_mergesort(count)):
+        if i in live or j in live:
+            kept.append((i, j))
+            live.add(i)
+            live.add(j)
+    kept.reverse()
+    return tuple(kept)
+
+
+def _median_axis0_selection_inplace(
     slots: list[np.ndarray], spare: np.ndarray, out: np.ndarray
 ) -> np.ndarray:
-    """Exact median across slots[0], via an odd-even transposition sort network.
+    """Exact median across slots[0], via a median selection network.
 
     Yields the same per-pixel order statistics as `_median_axis0_exact_inplace`
     (same values, same casting, just reached through elementwise min/max compare-
@@ -659,17 +702,18 @@ def _median_axis0_sortnet_inplace(
     It carries both the background stack and, when the sample count is odd, the
     absolute-deviation stack behind the MAD. On a float32 stack `np.partition`
     still wins, so an even sample count keeps that path.
+
+    Each compare-exchange is two full-array passes, so runtime tracks the comparator count
+    directly; `spare` rotates through the slots so no pass allocates.
     """
     count = len(slots)
     mid = count // 2
-    for p in range(count):
-        start = p % 2
-        for i in range(start, count - 1, 2):
-            x, y = slots[i], slots[i + 1]
-            np.minimum(x, y, out=spare)
-            np.maximum(x, y, out=y)
-            slots[i], slots[i + 1] = spare, y
-            spare = x
+    for i, j in _median_selection_network(count):
+        x, y = slots[i], slots[j]
+        np.minimum(x, y, out=spare)
+        np.maximum(x, y, out=y)
+        slots[i], slots[j] = spare, y
+        spare = x
     if count % 2:
         np.copyto(out, slots[mid], casting="unsafe")
         return out
@@ -687,21 +731,21 @@ def _robust_temporal_model_partition(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     count = len(sampled_frames)
     for i, frame in enumerate(sampled_frames):
-        np.copyto(scratch.sortnet_pool[i], frame)
+        np.copyto(scratch.selection_pool[i], frame)
 
-    slots = scratch.sortnet_pool[:count]
-    spare = scratch.sortnet_pool[count]
+    slots = scratch.selection_pool[:count]
+    spare = scratch.selection_pool[count]
     if scratch.integer_medians:
-        background_u16 = _median_axis0_sortnet_inplace(slots, spare, scratch.background_u16)
+        background_u16 = _median_axis0_selection_inplace(slots, spare, scratch.background_u16)
         background = scratch.background
         np.copyto(background, background_u16)
         for i, frame in enumerate(sampled_frames):
             cv2.absdiff(frame, background_u16, dst=scratch.deviation_pool[i])
-        _median_axis0_sortnet_inplace(
+        _median_axis0_selection_inplace(
             scratch.deviation_pool[:count], scratch.deviation_pool[count], scratch.sigma
         )
     else:
-        background = _median_axis0_sortnet_inplace(slots, spare, scratch.background)
+        background = _median_axis0_selection_inplace(slots, spare, scratch.background)
         for i, frame in enumerate(sampled_frames):
             scratch.stack_f32[i, ...] = frame
         np.subtract(scratch.stack_f32, background[None, ...], out=scratch.stack_f32)

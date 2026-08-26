@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Replaced the temporal model's full sort network with a median selection network: Batcher's
+  odd-even mergesort pruned by backward liveness to the middle position(s). For the default 13
+  samples this is 39 comparators instead of 78, halving the work for identical order
+  statistics. Bit-exact, verified by the 0-1 principle exhaustively for every sample count up
+  to 16 and against the previous implementation across sample counts and value regimes. The
+  temporal model is about 1.5x faster and end-to-end scanning went from 126 to 144 fps on an
+  1800-frame 4K H.264 clip. With `--hw-decoder cuda` the same scan reaches 150 fps at 2.6 CPU
+  cores instead of 11.6, since the detector is now fast enough that software decode competes
+  with it for cores rather than filling idle ones.
+
 - Added opt-in hardware video decoding via `--hw-decoder` (`auto`, `vaapi`, `cuda`, `qsv`,
   `videotoolbox`, `d3d11va`, `dxva2`) and `--hw-decoder-device`, with `hardware_decoder` and
   `hardware_decoder_device` config keys. It stays off by default. Scaling remains on the CPU so
