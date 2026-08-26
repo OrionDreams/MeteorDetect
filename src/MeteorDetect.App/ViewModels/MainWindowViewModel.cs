@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -134,6 +135,9 @@ public partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private string _updateNotificationText = "";
+
+    [ObservableProperty]
+    private string _latestReleaseUrl = "";
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshDirectoryCommand))]
@@ -447,6 +451,29 @@ public partial class MainWindowViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task OpenLatestReleaseAsync()
+    {
+        if (string.IsNullOrWhiteSpace(LatestReleaseUrl))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(LatestReleaseUrl)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            await _userInteraction.ShowNoticeAsync(
+                "Could not open browser",
+                $"Open this page manually:\n{LatestReleaseUrl}\n\n{ex.Message}");
+        }
+    }
+
+    [RelayCommand]
     private async Task BrowseResolveDirectoryAsync()
     {
         var path = await _userInteraction.ChooseFolderAsync("Choose Resolve Fusion/Scripts/Utility directory");
@@ -534,9 +561,10 @@ public partial class MainWindowViewModel : ObservableObject
             Dispatcher.UIThread.Post(() =>
             {
                 IsUpdateAvailable = true;
+                LatestReleaseUrl = result.ReleaseUrl ?? "";
                 UpdateNotificationText = string.IsNullOrWhiteSpace(result.ReleaseUrl)
-                    ? $"MeteorDetect {result.LatestVersion} is available. Current version: {AppVersionInfo.ReleaseTag}."
-                    : $"MeteorDetect {result.LatestVersion} is available. Current version: {AppVersionInfo.ReleaseTag}.\n{result.ReleaseUrl}";
+                    ? $"MeteorDetect {result.LatestVersion} is available"
+                    : $"MeteorDetect {result.LatestVersion} is available";
             });
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException or JsonException)

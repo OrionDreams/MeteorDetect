@@ -5,7 +5,7 @@ namespace MeteorDetect.App;
 
 public static class AppVersionInfo
 {
-    public static string Version { get; } = ResolveVersion();
+    public static string Version { get; } = StripBuildMetadata(ResolveVersion());
 
     public static string ReleaseTag { get; } = Version.StartsWith("v", StringComparison.Ordinal)
         ? Version
@@ -24,5 +24,13 @@ public static class AppVersionInfo
         }
 
         return assembly.GetName().Version?.ToString(3) ?? "0.0.0";
+    }
+
+    private static string StripBuildMetadata(string version)
+    {
+        var metadataIndex = version.IndexOf('+', StringComparison.Ordinal);
+        return metadataIndex >= 0
+            ? version[..metadataIndex]
+            : version;
     }
 }
