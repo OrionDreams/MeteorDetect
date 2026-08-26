@@ -57,11 +57,49 @@ public sealed class DetectionService
         return pauseRequestPath;
     }
 
+    public async Task<string?> GetDetectorRuntimeVersionAsync(CancellationToken cancellationToken = default)
+    {
+        var executable = _runtime.UsesBundledDetectorExecutable
+            ? _runtime.DetectorExecutable!
+            : _runtime.PythonExecutable;
+        var args = _runtime.UsesBundledDetectorExecutable
+            ? new List<string> { "--version" }
+            : new List<string> { "-m", _runtime.DetectScript, "--version" };
+
+        var result = await ProcessRunner.RunAsync(
+            executable,
+            args,
+            _runtime.RepositoryRoot,
+            BuildProcessEnvironment(),
+            cancellationToken: cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            return null;
+        }
+
+        var output = string.IsNullOrWhiteSpace(result.StandardOutput)
+            ? result.StandardError.Trim()
+            : result.StandardOutput.Trim();
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return null;
+        }
+
+        const string prefix = "Meteor Detector runtime ";
+        return output.StartsWith(prefix, StringComparison.Ordinal)
+            ? output[prefix.Length..].Trim()
+            : output;
+    }
+
     public async Task<DetectionBatchResult> DetectAsync(
         IReadOnlyList<string> clipPaths,
         string detectorAlgorithm,
+        string cameraClass,
         string detectorDecoder,
+        int diagnosticLevel,
         bool ignoreCameraBumps,
+        bool outputDiagnosticImages,
         bool writeCombinedJson,
         Action<string, string>? updateClipStatus,
         Action<string>? log,
@@ -73,7 +111,9 @@ public sealed class DetectionService
         }
 
         var algorithm = DetectorAlgorithms.Resolve(detectorAlgorithm);
+        var camera = CameraClasses.Resolve(cameraClass);
         var decoder = DetectorDecoders.Resolve(detectorDecoder);
+        var diagnostics = DiagnosticLevels.Resolve(diagnosticLevel);
         var batchDirectory = writeCombinedJson ? CreateBatchDirectory() : null;
         var outputTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var results = new List<ClipDetectionResult>();
@@ -106,13 +146,20 @@ public sealed class DetectionService
             args.Add(clipPath);
             args.Add("-o");
             args.Add(clipOutput);
-            args.Add("--no-diagnostics");
+            if (!outputDiagnosticImages)
+            {
+                args.Add("--no-diagnostics");
+            }
             args.Add("--profile");
 
             args.Add("--detector-algorithm");
             args.Add(algorithm.Id);
+            args.Add("--camera-class");
+            args.Add(camera.Id);
             args.Add("--decoder");
             args.Add(decoder.Id);
+            args.Add("--diagnostic-level");
+            args.Add(diagnostics.Id.ToString());
 
             if (ignoreCameraBumps)
             {
@@ -373,6 +420,7 @@ public sealed class DetectionService
         writer.WriteStartObject();
         writer.WriteString("format", "resolve-meteor-detector");
         writer.WriteNumber("format_version", 1);
+        writer.WriteString("app_version", AppVersionInfo.ReleaseTag);
         writer.WriteString("detector_version", detectorVersion);
         writer.WriteString("created_utc", DateTimeOffset.UtcNow.ToString("O"));
         writer.WritePropertyName("config");

@@ -30,6 +30,16 @@ public sealed partial class ProcessingHistoryEntryViewModel : ObservableObject
     public string DetectorAlgorithm =>
         $"{MeteorDetect.App.DetectorAlgorithms.Resolve(Entry.DetectorAlgorithm).Name} / {MeteorDetect.App.DetectorDecoders.Resolve(Entry.Decoder).Name}";
 
+    public string VersionSummary
+    {
+        get
+        {
+            var appVersion = string.IsNullOrWhiteSpace(Entry.AppVersion) ? "unknown app" : Entry.AppVersion;
+            var detectorVersion = string.IsNullOrWhiteSpace(Entry.DetectorVersion) ? "unknown detector" : $"detector {Entry.DetectorVersion}";
+            return $"{appVersion} / {detectorVersion}";
+        }
+    }
+
     public string DetectedAt => Entry.DetectedAtUtc
         .ToLocalTime()
         .ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture);

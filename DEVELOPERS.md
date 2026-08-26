@@ -61,7 +61,7 @@ When changing detector behavior, preserve the project invariants documented in [
 At minimum, run syntax checks:
 
 ```bash
-python -m py_compile meteor_detector/cli.py meteor_detector/detector.py resolve_importer/import_meteors.py
+python -m py_compile meteor_detector/cli.py meteor_detector/detector.py resolve_importer/legacy/import_meteors.py
 ```
 
 For desktop app or packaging changes:

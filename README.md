@@ -187,6 +187,25 @@ Run the default optimized detector explicitly:
 bin/detect-meteors.sh C2752.MP4 --detector-algorithm optimized_temporal_median
 ```
 
+Use the stricter Noisy Camera tuning profile for noisy or heavily processed night video:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 --camera-class noisy_camera
+```
+
+Camera class is separate from detector algorithm. `sony_mirrorless` preserves the current
+default tuning, while `noisy_camera` keeps the same detector implementation but raises
+candidate thresholds.
+
+Write deeper diagnostics for each candidate frame:
+
+```bash
+bin/detect-meteors.sh C2752.MP4 --diagnostic-level 2
+```
+
+Diagnostic level 1 writes the current annotated candidate JPEGs. Level 2 also writes residual,
+threshold-mask, sigma-map, threshold-map, and candidate-stat sidecars.
+
 Run the original slower baseline if you suspect the optimized detector missed a real meteor:
 
 ```bash

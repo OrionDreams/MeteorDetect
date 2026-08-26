@@ -72,7 +72,16 @@ public partial class MainWindowViewModel : ObservableObject
     private bool _ignoreCameraBumps;
 
     [ObservableProperty]
+    private bool _outputDiagnosticImages;
+
+    [ObservableProperty]
     private DetectorAlgorithmOption _selectedDetectorAlgorithm = DetectorAlgorithms.All[0];
+
+    [ObservableProperty]
+    private CameraClassOption _selectedCameraClass = CameraClasses.All[0];
+
+    [ObservableProperty]
+    private DiagnosticLevelOption _selectedDiagnosticLevel = DiagnosticLevels.All[0];
 
     [ObservableProperty]
     private DetectorDecoderOption _selectedDetectorDecoder = DetectorDecoders.All[0];
@@ -117,6 +126,9 @@ public partial class MainWindowViewModel : ObservableObject
     private string _runtimeStatus;
 
     [ObservableProperty]
+    private string _appVersionText = $"App: {AppVersionInfo.ReleaseTag}";
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshDirectoryCommand))]
     private string _loadedDirectoryPath = "";
 
@@ -131,7 +143,7 @@ public partial class MainWindowViewModel : ObservableObject
         _runtime = runtime;
         _detectionService = detectionService;
         _userInteraction = userInteraction;
-        _runtimeStatus = $"Detector: {_runtime.DetectScript}\nPython: {_runtime.PythonExecutable}";
+        _runtimeStatus = BuildRuntimeStatus(null);
         _remainingTimeTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1)
@@ -154,6 +166,10 @@ public partial class MainWindowViewModel : ObservableObject
     public ObservableCollection<ProcessingHistoryEntryViewModel> HistoryEntries { get; } = [];
 
     public IReadOnlyList<DetectorAlgorithmOption> DetectorAlgorithmOptions => DetectorAlgorithms.All;
+
+    public IReadOnlyList<CameraClassOption> CameraClassOptions => CameraClasses.All;
+
+    public IReadOnlyList<DiagnosticLevelOption> DiagnosticLevelOptions => DiagnosticLevels.All;
 
     public IReadOnlyList<DetectorDecoderOption> DetectorDecoderOptions => DetectorDecoders.All;
 
@@ -229,8 +245,11 @@ public partial class MainWindowViewModel : ObservableObject
             var result = await _detectionService.DetectAsync(
                 targetClips.Select(clip => clip.Path).ToList(),
                 SelectedDetectorAlgorithm.Id,
+                SelectedCameraClass.Id,
                 SelectedDetectorDecoder.Id,
+                SelectedDiagnosticLevel.Id,
                 IgnoreCameraBumps,
+                OutputDiagnosticImages,
                 WriteCombinedJson,
                 UpdateClipStatus,
                 AppendLogThreadSafe);
@@ -468,12 +487,40 @@ public partial class MainWindowViewModel : ObservableObject
         }
 
         SelectedDetectorAlgorithm = DetectorAlgorithms.Resolve(_settings.DetectorAlgorithm);
+        SelectedCameraClass = CameraClasses.Resolve(_settings.CameraClass);
+        SelectedDiagnosticLevel = DiagnosticLevels.Resolve(_settings.DiagnosticLevel);
         SelectedDetectorDecoder = DetectorDecoders.Resolve(_settings.DetectorDecoder);
         WriteCombinedJson = _settings.WriteCombinedJson;
         IgnoreCameraBumps = _settings.IgnoreCameraBumps;
+        OutputDiagnosticImages = _settings.OutputDiagnosticImages;
+        await RefreshDetectorRuntimeVersionAsync();
         await LoadHistoryAsync();
         await SettingsStore.SaveAsync(_settings);
         RefreshResolvePluginStatus();
+    }
+
+    private async Task RefreshDetectorRuntimeVersionAsync()
+    {
+        try
+        {
+            RuntimeStatus = BuildRuntimeStatus(await _detectionService.GetDetectorRuntimeVersionAsync());
+        }
+        catch (Exception ex)
+        {
+            RuntimeStatus = BuildRuntimeStatus($"unavailable ({ex.Message})");
+        }
+    }
+
+    private string BuildRuntimeStatus(string? detectorRuntimeVersion)
+    {
+        var detectorVersionText = string.IsNullOrWhiteSpace(detectorRuntimeVersion)
+            ? "Detector runtime: checking..."
+            : $"Detector runtime: {detectorRuntimeVersion}";
+        return
+            $"App: {AppVersionInfo.ReleaseTag}\n" +
+            $"{detectorVersionText}\n" +
+            $"Detector: {_runtime.DetectScript}\n" +
+            $"Python: {_runtime.PythonExecutable}";
     }
 
     private async Task LoadHistoryAsync()
@@ -517,6 +564,7 @@ public partial class MainWindowViewModel : ObservableObject
             MeteorCount = result.EventCount,
             DetectedAtUtc = DateTimeOffset.UtcNow,
             OutputJsonPath = result.JsonPath,
+            AppVersion = AppVersionInfo.ReleaseTag,
             DetectorVersion = result.DetectorVersion,
             DetectorAlgorithm = result.DetectorAlgorithm,
             Decoder = result.Decoder,
@@ -609,10 +657,28 @@ public partial class MainWindowViewModel : ObservableObject
         _ = SettingsStore.SaveAsync(_settings);
     }
 
+    partial void OnOutputDiagnosticImagesChanged(bool value)
+    {
+        _settings.OutputDiagnosticImages = value;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
     partial void OnSelectedDetectorAlgorithmChanged(DetectorAlgorithmOption value)
     {
         _settings.DetectorAlgorithm = value.Id;
         _settings.FastPrefilter = value.Id == DetectorAlgorithms.AccurateWithPrefilter;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnSelectedCameraClassChanged(CameraClassOption value)
+    {
+        _settings.CameraClass = value.Id;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnSelectedDiagnosticLevelChanged(DiagnosticLevelOption value)
+    {
+        _settings.DiagnosticLevel = value.Id;
         _ = SettingsStore.SaveAsync(_settings);
     }
 

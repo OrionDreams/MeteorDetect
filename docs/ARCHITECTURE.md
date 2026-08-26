@@ -29,7 +29,7 @@ cross-frame event grouping
 per-clip meteor JSON
         |
         v
-resolve_importer/import_meteors.py
+resolve_importer/legacy/import_meteors.py
         |
         v
 Pink TimelineItem markers
@@ -65,6 +65,7 @@ The Python detector remains independently runnable and testable. The UI invokes 
 CLI orchestration:
 
 - loads configuration;
+- applies camera-class tuning profiles;
 - discovers files;
 - applies CLI overrides;
 - invokes `scan_file()`;
@@ -84,9 +85,14 @@ Core implementation:
 - diagnostics
 - profiling
 
-### `resolve_importer/import_meteors.py`
+The detector runtime version is independent from the desktop app version and is exported
+from `meteor_detector/__init__.py`. Detector JSON files record this value as
+`detector_version`.
 
-Resolve-side importer. It is intentionally separate from image analysis.
+### `resolve_importer/legacy/import_meteors.py`
+
+Legacy external-Python Resolve-side importer. It is intentionally separate from image
+analysis and remains available as a development/reference implementation.
 
 ### `src/MeteorDetect.App`
 
@@ -102,6 +108,11 @@ Avalonia desktop application for non-console users:
 - record successful detections in local processing history;
 - help install the Resolve Lua Utility script;
 - remember the detected or user-supplied Resolve script directory.
+
+The desktop app version is owned by the .NET project metadata in
+`src/MeteorDetect.App/MeteorDetect.App.csproj`. `Version` / `PackageVersion` use the
+SemVer value such as `0.2.3`; `InformationalVersion` uses the release tag spelling such as
+`v0.2.3`. App releases should be tagged with the same `vX.Y.Z` value.
 
 Packaged releases should bundle the detector runtime. Source/development builds may use the active developer Python environment.
 
@@ -150,6 +161,34 @@ MAD:                  1
 The temporary spike does not define the background or normal noise. That is why faint,
 short-lived streaks can stand out while stable stars and foreground are suppressed.
 
+## Camera classes
+
+Camera class is separate from detector algorithm. The algorithm controls the implementation
+used to analyze frames. The camera class controls the threshold profile used for a family of
+footage.
+
+Available camera classes:
+
+- `sony_mirrorless`: the existing default behavior tuned for the original Sony mirrorless
+  footage.
+- `noisy_camera`: a stricter threshold profile for noisier, more heavily processed video
+  such as security-camera or compressed night-mode footage.
+
+The noisy-camera profile keeps the same temporal median/MAD detector but raises candidate
+thresholds. It does not skip frames with many candidates and does not change event grouping.
+
+## Diagnostics
+
+Diagnostic level 1 is the default and preserves the existing annotated candidate JPEGs.
+
+Diagnostic level 2 writes additional sidecar diagnostics for each candidate frame:
+
+- positive residual image;
+- blurred residual image used for thresholding;
+- threshold mask before morphology;
+- local sigma map and final signal-threshold map;
+- per-frame candidate stats JSON.
+
 ## Fast prefilter
 
 The prefilter is not recommended for normal processing. It remains available only as an
@@ -186,6 +225,6 @@ Normal user path:
 external detector -> per-clip meteor JSON -> Resolve Workspace/Utility Lua script -> TimelineItem:AddMarker()
 ```
 
-`resolve_importer/Import Meteors.lua` is the preferred end-user importer. It is self-contained so the Resolve host does not depend on the detector's Python runtime. `resolve_importer/import_meteors.py` remains as a development/reference implementation.
+`resolve_importer/Import Meteors.lua` is the preferred end-user importer. It is self-contained so the Resolve host does not depend on the detector's Python runtime. `resolve_importer/legacy/import_meteors.py` remains as a development/reference implementation.
 
 The desktop UI may install or update `Import Meteors.lua` by probing known Resolve Utility script directories. If no directory is found, the user can choose one manually and the UI should remember that directory. A future Resolve utility may launch the desktop app with the selected original media path, but the app must remain useful without that integration.

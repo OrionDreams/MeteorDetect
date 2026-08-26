@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.2.4 Beta with Detector runtime 0.6.0
+
+- Added explicit app and detector-runtime version sources: the desktop app now uses .NET
+  project metadata for `v0.2.3`, while the Python detector runtime reports `0.6.0`.
+- Moved the old external Python Resolve importer to `resolve_importer/legacy/`.
+- Improved temporal background median performance with a sort-network implementation for
+  small sampled-frame stacks.
+- Added a Diagnostic Level setting to the desktop app and detector CLI.
+- Added camera-class tuning profiles with `sony_mirrorless` as the default and `noisy_camera`
+  as a stricter profile for noisy or heavily processed night video.
+- Added the Camera Class selector to the desktop app and moved it to the top bar for easier
+  per-run access.
+- Renamed the default camera-class label to "Mirrorless (Sony, Canon, etc)" while preserving
+  the existing `sony_mirrorless` internal ID.
+- Added diagnostic level 2 with residual, threshold-mask, sigma-map, threshold-map and
+  candidate-stat sidecars for candidate frames.
+- Fixed progress/frame-count estimates for videos whose `avg_frame_rate` metadata disagrees
+  with the nominal stream frame rate, using packet counts as a fallback when frame count
+  metadata is absent.
+
 ## v0.2.3 Beta with Detector runtime 0.6.0
 
 - Added a GitHub Actions release workflow for tag-triggered packaging.

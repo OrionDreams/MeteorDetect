@@ -163,21 +163,30 @@
             </Border.Background>
         </Border>
 
-        <Border Padding="22,16" Background="#121821">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
-                <Border Width="38" Height="38" CornerRadius="8" Background="#090B10" VerticalAlignment="Center" ClipToBounds="True">
-                    <Image Source="/Assets/MeteorDetect.png" Width="38" Height="38" Stretch="Uniform"/>
-                </Border>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold"/>
-                    <TextBlock Classes="secondary"
-                               Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
+        <Border Padding="22,14" Background="#121821">
+            <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12">
+                    <Border Width="38" Height="38" CornerRadius="8" Background="#090B10" VerticalAlignment="Center" ClipToBounds="True">
+                        <Image Source="/Assets/MeteorDetect.png" Width="38" Height="38" Stretch="Uniform"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding AppVersionText}" Classes="muted"/>
+                        <TextBlock Classes="secondary"
+                                   Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
+                    </StackPanel>
+                    <Button Grid.Column="2" Content="Open File" Command="{Binding AddFilesCommand}" MinWidth="112"/>
+                    <Button Grid.Column="3" Content="Open Directory" Command="{Binding OpenDirectoryCommand}" MinWidth="132"/>
+                    <Button Grid.Column="4" Content="Refresh Directory" Command="{Binding RefreshDirectoryCommand}" MinWidth="142"/>
+                    <Button Grid.Column="5" Classes.pausePending="{Binding IsPauseButtonPending}" Content="{Binding PauseButtonText}" Command="{Binding PauseDetectionCommand}" MinWidth="92"/>
+                    <Button Grid.Column="6" Classes="primary" Content="{Binding DetectButtonText}" Command="{Binding DetectCommand}" MinWidth="132"/>
+                </Grid>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <TextBlock Text="Camera Class" Classes="secondary" VerticalAlignment="Center"/>
+                    <ComboBox ItemsSource="{Binding CameraClassOptions}"
+                              SelectedItem="{Binding SelectedCameraClass, Mode=TwoWay}"
+                              MinWidth="250"/>
                 </StackPanel>
-                <Button Grid.Column="2" Content="Open File" Command="{Binding AddFilesCommand}" MinWidth="112"/>
-                <Button Grid.Column="3" Content="Open Directory" Command="{Binding OpenDirectoryCommand}" MinWidth="132"/>
-                <Button Grid.Column="4" Content="Refresh Directory" Command="{Binding RefreshDirectoryCommand}" MinWidth="142"/>
-                <Button Grid.Column="5" Classes.pausePending="{Binding IsPauseButtonPending}" Content="{Binding PauseButtonText}" Command="{Binding PauseDetectionCommand}" MinWidth="92"/>
-                <Button Grid.Column="6" Classes="primary" Content="{Binding DetectButtonText}" Command="{Binding DetectCommand}" MinWidth="132"/>
             </Grid>
         </Border>
 
@@ -193,6 +202,9 @@
                             <CheckBox Content="Ignore camera bumps"
                                       IsChecked="{Binding IgnoreCameraBumps}"
                                       ToolTip.Tip="Use this only if the camera was moved while recording."/>
+                            <CheckBox Content="Output diagnostic images"
+                                      IsChecked="{Binding OutputDiagnosticImages}"
+                                      ToolTip.Tip="Write candidate frame JPEGs next to each source video."/>
                         </StackPanel>
                     </Grid>
 
@@ -307,17 +319,18 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ProcessingHistoryEntryViewModel">
                                     <Border Classes="tile">
-                                        <Grid ColumnDefinitions="2.3*,Auto,Auto,Auto,Auto" ColumnSpacing="18">
+                                        <Grid ColumnDefinitions="2.3*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="18">
                                             <StackPanel>
                                                 <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/>
                                                 <TextBlock Text="{Binding ClipPath}" Classes="muted"/>
                                             </StackPanel>
                                             <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="2" Text="{Binding DetectorAlgorithm}" Classes="muted" VerticalAlignment="Center"/>
-                                            <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
+                                            <TextBlock Grid.Column="3" Text="{Binding VersionSummary}" Classes="muted" VerticalAlignment="Center"/>
+                                            <Border Grid.Column="4" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding MeteorCount}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
                                             </Border>
-                                            <TextBlock Grid.Column="4" Text="{Binding DetectedAt}" Classes="muted" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding DetectedAt}" Classes="muted" VerticalAlignment="Center"/>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -368,6 +381,13 @@
                                       SelectedItem="{Binding SelectedDetectorDecoder, Mode=TwoWay}"
                                       MinWidth="360"/>
                             <TextBlock Text="{Binding SelectedDetectorDecoder.Description}"
+                                       Classes="secondary"
+                                       TextWrapping="Wrap"/>
+                            <TextBlock Text="Diagnostic Level" Classes="secondary" Margin="0,8,0,0"/>
+                            <ComboBox ItemsSource="{Binding DiagnosticLevelOptions}"
+                                      SelectedItem="{Binding SelectedDiagnosticLevel, Mode=TwoWay}"
+                                      MinWidth="360"/>
+                            <TextBlock Text="{Binding SelectedDiagnosticLevel.Description}"
                                        Classes="secondary"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
