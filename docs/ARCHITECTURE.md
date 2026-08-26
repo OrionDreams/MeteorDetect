@@ -85,6 +85,10 @@ Core implementation:
 - diagnostics
 - profiling
 
+The detector runtime version is independent from the desktop app version and is exported
+from `meteor_detector/__init__.py`. Detector JSON files record this value as
+`detector_version`.
+
 ### `resolve_importer/import_meteors.py`
 
 Resolve-side importer. It is intentionally separate from image analysis.
@@ -103,6 +107,11 @@ Avalonia desktop application for non-console users:
 - record successful detections in local processing history;
 - help install the Resolve Lua Utility script;
 - remember the detected or user-supplied Resolve script directory.
+
+The desktop app version is owned by the .NET project metadata in
+`src/MeteorDetect.App/MeteorDetect.App.csproj`. `Version` / `PackageVersion` use the
+SemVer value such as `0.2.3`; `InformationalVersion` uses the release tag spelling such as
+`v0.2.3`. App releases should be tagged with the same `vX.Y.Z` value.
 
 Packaged releases should bundle the detector runtime. Source/development builds may use the active developer Python environment.
 

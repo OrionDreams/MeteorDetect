@@ -57,6 +57,41 @@ public sealed class DetectionService
         return pauseRequestPath;
     }
 
+    public async Task<string?> GetDetectorRuntimeVersionAsync(CancellationToken cancellationToken = default)
+    {
+        var executable = _runtime.UsesBundledDetectorExecutable
+            ? _runtime.DetectorExecutable!
+            : _runtime.PythonExecutable;
+        var args = _runtime.UsesBundledDetectorExecutable
+            ? new List<string> { "--version" }
+            : new List<string> { "-m", _runtime.DetectScript, "--version" };
+
+        var result = await ProcessRunner.RunAsync(
+            executable,
+            args,
+            _runtime.RepositoryRoot,
+            BuildProcessEnvironment(),
+            cancellationToken: cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            return null;
+        }
+
+        var output = string.IsNullOrWhiteSpace(result.StandardOutput)
+            ? result.StandardError.Trim()
+            : result.StandardOutput.Trim();
+        if (string.IsNullOrWhiteSpace(output))
+        {
+            return null;
+        }
+
+        const string prefix = "Meteor Detector runtime ";
+        return output.StartsWith(prefix, StringComparison.Ordinal)
+            ? output[prefix.Length..].Trim()
+            : output;
+    }
+
     public async Task<DetectionBatchResult> DetectAsync(
         IReadOnlyList<string> clipPaths,
         string detectorAlgorithm,
@@ -385,6 +420,7 @@ public sealed class DetectionService
         writer.WriteStartObject();
         writer.WriteString("format", "resolve-meteor-detector");
         writer.WriteNumber("format_version", 1);
+        writer.WriteString("app_version", AppVersionInfo.ReleaseTag);
         writer.WriteString("detector_version", detectorVersion);
         writer.WriteString("created_utc", DateTimeOffset.UtcNow.ToString("O"));
         writer.WritePropertyName("config");

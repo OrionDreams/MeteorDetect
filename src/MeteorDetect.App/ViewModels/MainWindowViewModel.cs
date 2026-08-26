@@ -126,6 +126,9 @@ public partial class MainWindowViewModel : ObservableObject
     private string _runtimeStatus;
 
     [ObservableProperty]
+    private string _appVersionText = $"App: {AppVersionInfo.ReleaseTag}";
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshDirectoryCommand))]
     private string _loadedDirectoryPath = "";
 
@@ -140,7 +143,7 @@ public partial class MainWindowViewModel : ObservableObject
         _runtime = runtime;
         _detectionService = detectionService;
         _userInteraction = userInteraction;
-        _runtimeStatus = $"Detector: {_runtime.DetectScript}\nPython: {_runtime.PythonExecutable}";
+        _runtimeStatus = BuildRuntimeStatus(null);
         _remainingTimeTimer = new DispatcherTimer
         {
             Interval = TimeSpan.FromSeconds(1)
@@ -490,9 +493,34 @@ public partial class MainWindowViewModel : ObservableObject
         WriteCombinedJson = _settings.WriteCombinedJson;
         IgnoreCameraBumps = _settings.IgnoreCameraBumps;
         OutputDiagnosticImages = _settings.OutputDiagnosticImages;
+        await RefreshDetectorRuntimeVersionAsync();
         await LoadHistoryAsync();
         await SettingsStore.SaveAsync(_settings);
         RefreshResolvePluginStatus();
+    }
+
+    private async Task RefreshDetectorRuntimeVersionAsync()
+    {
+        try
+        {
+            RuntimeStatus = BuildRuntimeStatus(await _detectionService.GetDetectorRuntimeVersionAsync());
+        }
+        catch (Exception ex)
+        {
+            RuntimeStatus = BuildRuntimeStatus($"unavailable ({ex.Message})");
+        }
+    }
+
+    private string BuildRuntimeStatus(string? detectorRuntimeVersion)
+    {
+        var detectorVersionText = string.IsNullOrWhiteSpace(detectorRuntimeVersion)
+            ? "Detector runtime: checking..."
+            : $"Detector runtime: {detectorRuntimeVersion}";
+        return
+            $"App: {AppVersionInfo.ReleaseTag}\n" +
+            $"{detectorVersionText}\n" +
+            $"Detector: {_runtime.DetectScript}\n" +
+            $"Python: {_runtime.PythonExecutable}";
     }
 
     private async Task LoadHistoryAsync()
@@ -536,6 +564,7 @@ public partial class MainWindowViewModel : ObservableObject
             MeteorCount = result.EventCount,
             DetectedAtUtc = DateTimeOffset.UtcNow,
             OutputJsonPath = result.JsonPath,
+            AppVersion = AppVersionInfo.ReleaseTag,
             DetectorVersion = result.DetectorVersion,
             DetectorAlgorithm = result.DetectorAlgorithm,
             Decoder = result.Decoder,

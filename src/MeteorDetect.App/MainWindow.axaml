@@ -171,6 +171,7 @@
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                         <TextBlock Text="MeteorDetect" FontSize="24" FontWeight="SemiBold"/>
+                        <TextBlock Text="{Binding AppVersionText}" Classes="muted"/>
                         <TextBlock Classes="secondary"
                                    Text="Detect source-frame meteors and prepare Resolve Pink clip markers."/>
                     </StackPanel>
@@ -318,17 +319,18 @@
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ProcessingHistoryEntryViewModel">
                                     <Border Classes="tile">
-                                        <Grid ColumnDefinitions="2.3*,Auto,Auto,Auto,Auto" ColumnSpacing="18">
+                                        <Grid ColumnDefinitions="2.3*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="18">
                                             <StackPanel>
                                                 <TextBlock Text="{Binding FileName}" FontWeight="SemiBold"/>
                                                 <TextBlock Text="{Binding ClipPath}" Classes="muted"/>
                                             </StackPanel>
                                             <TextBlock Grid.Column="1" Text="{Binding Duration}" Classes="secondary" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="2" Text="{Binding DetectorAlgorithm}" Classes="muted" VerticalAlignment="Center"/>
-                                            <Border Grid.Column="3" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
+                                            <TextBlock Grid.Column="3" Text="{Binding VersionSummary}" Classes="muted" VerticalAlignment="Center"/>
+                                            <Border Grid.Column="4" Background="#291A2A" BorderBrush="#663653" BorderThickness="1" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
                                                 <TextBlock Text="{Binding MeteorCount}" Foreground="{StaticResource MarkerBrush}" FontSize="12" FontWeight="SemiBold"/>
                                             </Border>
-                                            <TextBlock Grid.Column="4" Text="{Binding DetectedAt}" Classes="muted" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding DetectedAt}" Classes="muted" VerticalAlignment="Center"/>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

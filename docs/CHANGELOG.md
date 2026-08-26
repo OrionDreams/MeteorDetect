@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added explicit app and detector-runtime version sources: the desktop app now uses .NET
+  project metadata for `v0.2.3`, while the Python detector runtime reports `0.6.0`.
 - Improved temporal background median performance with a sort-network implementation for
   small sampled-frame stacks.
 - Added a Diagnostic Level setting to the desktop app and detector CLI.

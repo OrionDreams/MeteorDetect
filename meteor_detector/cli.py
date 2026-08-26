@@ -55,6 +55,12 @@ def write_payload(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Detect meteor-like transient streaks in night-sky video.")
+    ap.add_argument(
+        "--version",
+        action="version",
+        version=f"Meteor Detector runtime {__version__}",
+        help="Print detector runtime version and exit",
+    )
     ap.add_argument("input", type=Path, help="MP4 file or directory containing MP4 files")
     ap.add_argument(
         "-o",

@@ -30,6 +30,8 @@ public sealed class ProcessingHistoryEntry
 
     public string OutputJsonPath { get; set; } = "";
 
+    public string? AppVersion { get; set; }
+
     public string? DetectorVersion { get; set; }
 
     public string DetectorAlgorithm { get; set; } = DetectorAlgorithms.OptimizedTemporalMedian;
