@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 import sys
+import threading
 import time
 from collections import defaultdict, deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 from functools import lru_cache
@@ -31,6 +34,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # software path; only the codec reconstruction moves to the GPU. See docs/PERFORMANCE.md.
     "hardware_decoder": "none",
     "hardware_decoder_device": None,
+    # Anchor blocks are independent, so they analyse in parallel. 0 picks a small pool
+    # automatically; 1 keeps the fully sequential path. Do not raise this to the core count:
+    # the gain is small and caps early, and past ~4 workers throughput goes backwards.
+    # See docs/PERFORMANCE.md for why the ceiling is decode, not analysis.
+    "worker_threads": 0,
     "detector_algorithm": "optimized_temporal_median",
     "scan_width": 960,
     "temporal_window_frames": 25,
@@ -214,6 +222,10 @@ class Profiler:
         self.seconds: defaultdict[str, float] = defaultdict(float)
         self.counts: defaultdict[str, int] = defaultdict(int)
         self.started = time.perf_counter()
+        # Analysis stages are collected per worker and summed, so with a pool their total
+        # overlaps the main thread's wall clock and can exceed it. Recorded so the report can
+        # use the right denominator instead of showing percentages that add up past 100%.
+        self.worker_threads = 1
 
     def add_time(self, name: str, seconds: float) -> None:
         if self.enabled:
@@ -228,6 +240,7 @@ class Profiler:
         stages = {k: round(v, 6) for k, v in sorted(self.seconds.items())}
         return {
             "total_seconds": round(total, 6),
+            "worker_threads": self.worker_threads,
             "stages_seconds": stages,
             "counts": dict(sorted(self.counts.items())),
         }
@@ -966,6 +979,171 @@ def find_candidates(
     )
 
 
+@dataclass
+class BlockResult:
+    """What one anchor block produced. Merged back on the main thread, in submission order."""
+    anchor: int
+    end: int
+    candidates: list[Candidate]
+    last_candidate_frame: int
+    seconds: dict[str, float]
+    counts: dict[str, int]
+
+
+class BlockContext:
+    """Everything an anchor block needs that does not vary between blocks.
+
+    Holds the per-thread temporal model scratch. Those buffers are mutated in place, so
+    workers must never share one; `scratch` hands each thread its own on first use.
+    """
+
+    def __init__(
+        self,
+        cfg: dict[str, Any],
+        sw: int,
+        sh: int,
+        half: int,
+        sample_offsets: list[int],
+        sample_count: int,
+        block_left: int,
+        block_right: int,
+        temporal_model_impl: str,
+        diagnostic_level: int,
+        diag_dir: Path,
+        rotation: int,
+        profile: bool,
+    ) -> None:
+        self.cfg = cfg
+        self.sw = sw
+        self.sh = sh
+        self.half = half
+        self.sample_offsets = sample_offsets
+        self.sample_count = sample_count
+        self.block_left = block_left
+        self.block_right = block_right
+        self.temporal_model_impl = temporal_model_impl
+        self.diagnostic_level = diagnostic_level
+        self.diag_dir = diag_dir
+        self.rotation = rotation
+        self.profile = profile
+        self.use_prefilter = bool(cfg.get("fast_prefilter", False))
+        self.ignore_camera_bumps = bool(cfg.get("ignore_camera_bumps", False))
+        self.camera_bump_max_candidates = int(cfg.get("camera_bump_max_candidates_per_frame", 15))
+        self.write_diagnostics = bool(cfg.get("diagnostic_jpegs", True))
+        self.diagnostic_quality = int(cfg["diagnostic_quality"])
+        self.noise_floor = float(cfg["local_noise_floor"])
+        self.local_sigma_threshold = float(cfg["local_sigma_threshold"])
+        self.minimum_threshold = float(cfg["minimum_threshold"])
+        self._local = threading.local()
+
+    @property
+    def scratch(self) -> TemporalModelScratch | None:
+        if self.temporal_model_impl != "partition":
+            return None
+        existing = getattr(self._local, "scratch", None)
+        if existing is None:
+            existing = TemporalModelScratch(self.sample_count, self.sh, self.sw)
+            self._local.scratch = existing
+        return existing
+
+
+def analyze_block(
+    ctx: BlockContext,
+    anchor: int,
+    start: int,
+    end: int,
+    window: list[np.ndarray],
+    window_first: int,
+) -> BlockResult:
+    """Build one temporal model and detect over the frames it covers.
+
+    `window` holds frames `window_first .. window_first + len(window) - 1`, which spans the
+    whole sample window, so this runs without touching the decoder's shared frame buffer.
+    Timings and counters accumulate locally and are merged by the caller, so no lock is needed.
+    """
+    profiler = Profiler(ctx.profile)
+    result = BlockResult(anchor=anchor, end=end, candidates=[], last_candidate_frame=-1,
+                         seconds={}, counts={})
+
+    def get_frame(index: int) -> np.ndarray:
+        pos = index - window_first
+        if pos < 0 or pos >= len(window):
+            raise IndexError(
+                f"frame {index} is outside block window "
+                f"{window_first}..{window_first + len(window) - 1}"
+            )
+        return window[pos]
+
+    def finish() -> BlockResult:
+        result.seconds = dict(profiler.seconds)
+        result.counts = dict(profiler.counts)
+        return result
+
+    if ctx.use_prefilter:
+        passed = _cheap_prefilter_block(
+            get_frame, anchor, ctx.half, ctx.block_left, ctx.block_right, ctx.sw, ctx.cfg, profiler
+        )
+        if not passed:
+            profiler.inc("deep_blocks_skipped")
+            return finish()
+
+    scratch = ctx.scratch
+    t_model = time.perf_counter()
+    sampled = [get_frame(anchor + off) for off in ctx.sample_offsets]
+    background, _sigma, sigma_blur, median_sigma = _robust_temporal_model(
+        sampled, ctx.noise_floor, ctx.temporal_model_impl, scratch
+    )
+    if scratch is not None:
+        signal_threshold = scratch.signal_threshold
+        np.maximum(sigma_blur, 1.0, out=signal_threshold)
+        np.multiply(signal_threshold, ctx.local_sigma_threshold, out=signal_threshold)
+        np.maximum(signal_threshold, ctx.minimum_threshold, out=signal_threshold)
+    else:
+        signal_threshold = np.maximum(
+            ctx.minimum_threshold,
+            ctx.local_sigma_threshold * np.maximum(sigma_blur, 1.0),
+        ).astype(np.float32, copy=False)
+    profiler.add_time("temporal_model", time.perf_counter() - t_model)
+    profiler.inc("temporal_models")
+
+    for idx in range(start, end + 1):
+        center = get_frame(idx)
+        detection = find_candidates(
+            center, background, sigma_blur, signal_threshold, idx,
+            ctx.cfg, profiler, ctx.diagnostic_level,
+        )
+        cands = detection.candidates
+        if cands:
+            if ctx.ignore_camera_bumps and len(cands) > ctx.camera_bump_max_candidates:
+                profiler.inc("camera_bump_frames")
+                profiler.inc("camera_bump_candidates", len(cands))
+                continue
+            result.candidates.extend(cands)
+            result.last_candidate_frame = max(result.last_candidate_frame, idx)
+            if ctx.write_diagnostics:
+                td = time.perf_counter()
+                _write_diag(
+                    center, detection, idx, median_sigma, sigma_blur, signal_threshold,
+                    ctx.diag_dir, ctx.diagnostic_quality, ctx.rotation, ctx.diagnostic_level,
+                )
+                profiler.add_time("diagnostics", time.perf_counter() - td)
+    return finish()
+
+
+def resolve_worker_threads(cfg: dict[str, Any]) -> int:
+    """Worker count for block analysis; 1 means the sequential path.
+
+    Auto deliberately picks a very small pool. Two effects cap this work long before it
+    saturates cores: block analysis streams large buffers and saturates memory bandwidth, and
+    on candidate-dense frames the per-component geometry loop is Python-level and holds the
+    GIL. Measured end to end, 2-4 workers is the whole win and more workers get slower.
+    """
+    requested = int(cfg.get("worker_threads", 0) or 0)
+    if requested > 0:
+        return requested
+    return max(1, min(3, (os.cpu_count() or 1) - 1))
+
+
 def _angle_difference(a: float, b: float) -> float:
     d = abs(a - b) % 180.0
     return min(d, 180.0 - d)
@@ -1241,34 +1419,56 @@ def _write_diag(frame_u16: np.ndarray, detection: CandidateDetection, frame_idx:
         f.write("\n")
 
 
+# Stages the main thread spends wall-clock time in. These are serial, so they are shown as a
+# share of total runtime.
+PIPELINE_STAGES = ("decode_wait", "block_wait", "event_grouping")
+
+# Stages inside block analysis. With a worker pool these are summed across workers and overlap
+# the pipeline stages, so they are shown as a share of analysis time, not of the wall clock.
+ANALYSIS_STAGES = (
+    "prefilter",
+    "temporal_model",
+    "residual_blur_threshold",
+    "mask_morphology_components",
+    "component_geometry",
+    "diagnostics",
+)
+
+
 def format_profile(profile: dict[str, Any], filename: str) -> str:
     total = float(profile.get("total_seconds", 0.0))
     stages = profile.get("stages_seconds", {}) or {}
     counts = profile.get("counts", {}) or {}
+    workers = int(profile.get("worker_threads", 1) or 1)
     decoded = int(counts.get("decoded_frames", 0))
     fps = decoded / total if total > 0 else 0.0
+    analysis_total = sum(float(stages.get(name, 0.0)) for name in ANALYSIS_STAGES)
     lines = [
         f"Performance profile: {filename}",
         "-" * (21 + len(filename)),
         f"Frames decoded:             {decoded}",
         f"Total time:                 {total:9.3f} s",
         f"Effective throughput:       {fps:9.2f} fps",
+        f"Worker threads:             {workers:9d}",
         "",
-        "Stage timings:",
+        "Pipeline (main thread, share of wall clock):",
     ]
-    for name in (
-        "decode_wait",
-        "prefilter",
-        "temporal_model",
-        "residual_blur_threshold",
-        "mask_morphology_components",
-        "component_geometry",
-        "diagnostics",
-        "event_grouping",
-    ):
+    for name in PIPELINE_STAGES:
         value = float(stages.get(name, 0.0))
         pct = (100.0 * value / total) if total > 0 else 0.0
         lines.append(f"  {name:29s} {value:9.3f} s  {pct:5.1f}%")
+
+    if workers > 1:
+        header = f"Analysis (summed across {workers} workers, overlapping the above):"
+    else:
+        header = "Analysis (share of analysis time):"
+    lines += ["", header]
+    for name in ANALYSIS_STAGES:
+        value = float(stages.get(name, 0.0))
+        pct = (100.0 * value / analysis_total) if analysis_total > 0 else 0.0
+        lines.append(f"  {name:29s} {value:9.3f} s  {pct:5.1f}%")
+    overlap = (analysis_total / total) if total > 0 else 0.0
+    lines.append(f"  {'analysis total':29s} {analysis_total:9.3f} s  {overlap:5.2f}x wall")
     lines += [
         "",
         "Counters:",
@@ -1323,7 +1523,6 @@ def scan_file(
         sample_offsets.sort()
     if len(sample_offsets) < 7:
         raise ValueError("temporal_window_frames / temporal_sample_stride must yield at least 7 samples")
-    temporal_scratch = TemporalModelScratch(len(sample_offsets), sh, sw) if str(cfg.get("temporal_model_impl", "median")) == "partition" else None
 
     estimated = info.get("estimated_frames") or 0
     analysis_start_frame = max(0, int(analysis_start_frame))
@@ -1338,13 +1537,19 @@ def scan_file(
         raise ValueError("diagnostic_level must be 1 or 2")
     use_prefilter = bool(cfg.get("fast_prefilter", False))
     ignore_camera_bumps = bool(cfg.get("ignore_camera_bumps", False))
-    camera_bump_max_candidates = int(cfg.get("camera_bump_max_candidates_per_frame", 15))
 
     buf: deque[tuple[int, np.ndarray]] = deque()
     next_anchor = half
     processed_through = half - 1
+    submitted_through = half - 1
     block_left = model_stride // 2
     block_right = model_stride - block_left - 1
+    workers = max(1, resolve_worker_threads(cfg))
+    profiler.worker_threads = workers
+    ctx = BlockContext(
+        cfg, sw, sh, half, sample_offsets, len(sample_offsets), block_left, block_right,
+        temporal_model_impl, diagnostic_level, diag_dir, int(info.get("rotation", 0)), profile,
+    )
     last_candidate_frame = max((candidate.frame for candidate in all_candidates), default=-1)
     next_checkpoint_frame = max(checkpoint_interval_frames, analysis_start_frame + checkpoint_interval_frames)
     if pause_request_path is not None:
@@ -1357,78 +1562,53 @@ def scan_file(
             raise IndexError(f"frame {index} is outside buffered range {first}..{buf[-1][0]}")
         return buf[pos][1]
 
-    def process_anchor(anchor: int) -> None:
-        nonlocal processed_through, last_candidate_frame
-        start = max(half, anchor - block_left, processed_through + 1)
+    # Blocks are submitted in anchor order and merged in that same order, so candidates land in
+    # exactly the sequence the sequential path produced. That matters: group_events sorts with a
+    # stable sort, so input order still decides ties.
+    pending: deque[tuple[int, Any]] = deque()
+
+    def submit_anchor(anchor: int) -> None:
+        nonlocal submitted_through
+        start = max(half, anchor - block_left, submitted_through + 1)
         end = anchor + block_right
+        submitted_through = max(submitted_through, end)
         if end < analysis_start_frame:
-            processed_through = max(processed_through, end)
+            pending.append((end, BlockResult(anchor, end, [], -1, {}, {})))
             return
         start = max(start, analysis_start_frame)
 
-        if use_prefilter:
-            passed = _cheap_prefilter_block(
-                get_frame, anchor, half, block_left, block_right, sw, cfg, profiler
-            )
-            if not passed:
-                profiler.inc("deep_blocks_skipped")
-                processed_through = max(processed_through, end)
-                return
-
-        t_model = time.perf_counter()
-        sampled = [get_frame(anchor + off) for off in sample_offsets]
-        background, _sigma, sigma_blur, median_sigma = _robust_temporal_model(
-            sampled, float(cfg["local_noise_floor"]), temporal_model_impl, temporal_scratch
-        )
-        if temporal_scratch is not None:
-            signal_threshold = temporal_scratch.signal_threshold
-            np.maximum(sigma_blur, 1.0, out=signal_threshold)
-            np.multiply(signal_threshold, float(cfg["local_sigma_threshold"]), out=signal_threshold)
-            np.maximum(signal_threshold, float(cfg["minimum_threshold"]), out=signal_threshold)
+        # Copy the frame references the block needs. They are refcounted, so the decoder is
+        # free to drop them from its buffer while a worker is still using them.
+        window_first = anchor - half
+        window = [get_frame(idx) for idx in range(window_first, anchor + half + 1)]
+        if executor is None:
+            pending.append((end, analyze_block(ctx, anchor, start, end, window, window_first)))
         else:
-            signal_threshold = np.maximum(
-                float(cfg["minimum_threshold"]),
-                float(cfg["local_sigma_threshold"]) * np.maximum(sigma_blur, 1.0),
-            ).astype(np.float32, copy=False)
-        profiler.add_time("temporal_model", time.perf_counter() - t_model)
-        profiler.inc("temporal_models")
+            pending.append((end, executor.submit(
+                analyze_block, ctx, anchor, start, end, window, window_first)))
 
-        for idx in range(start, end + 1):
-            center = get_frame(idx)
-            detection = find_candidates(
-                center,
-                background,
-                sigma_blur,
-                signal_threshold,
-                idx,
-                cfg,
-                profiler,
-                diagnostic_level,
-            )
-            cands = detection.candidates
-            if cands:
-                if ignore_camera_bumps and len(cands) > camera_bump_max_candidates:
-                    profiler.inc("camera_bump_frames")
-                    profiler.inc("camera_bump_candidates", len(cands))
-                    continue
-                all_candidates.extend(cands)
-                last_candidate_frame = max(last_candidate_frame, idx)
-                if cfg.get("diagnostic_jpegs", True):
-                    td = time.perf_counter()
-                    _write_diag(
-                        center,
-                        detection,
-                        idx,
-                        median_sigma,
-                        sigma_blur,
-                        signal_threshold,
-                        diag_dir,
-                        int(cfg["diagnostic_quality"]),
-                        int(info.get("rotation", 0)),
-                        diagnostic_level,
-                    )
-                    profiler.add_time("diagnostics", time.perf_counter() - td)
+    def merge_result(end: int, result: BlockResult) -> None:
+        nonlocal processed_through, last_candidate_frame
+        all_candidates.extend(result.candidates)
+        if result.last_candidate_frame >= 0:
+            last_candidate_frame = max(last_candidate_frame, result.last_candidate_frame)
+        for name, seconds in result.seconds.items():
+            profiler.add_time(name, seconds)
+        for name, value in result.counts.items():
+            profiler.inc(name, value)
         processed_through = max(processed_through, end)
+
+    def drain(max_inflight: int = 0) -> None:
+        while len(pending) > max_inflight:
+            end, item = pending.popleft()
+            if isinstance(item, Future):
+                # Time spent here is the pool falling behind the decoder, which is worth
+                # telling apart from decoding itself.
+                tw = time.perf_counter()
+                item = item.result()
+                profiler.add_time("block_wait", time.perf_counter() - tw)
+            merge_result(end, item)
+            maybe_write_checkpoint()
 
     def maybe_write_checkpoint() -> None:
         nonlocal next_checkpoint_frame
@@ -1479,36 +1659,54 @@ def scan_file(
         print(f"[{path.name}] frame {processed_frames}{suffix}, candidates={len(all_candidates)}", file=sys.stderr)
         last_progress_reported = processed_frames
 
+    # OpenCV parallelises inside single calls. With a worker pool on top, both layers compete
+    # for the same cores, so hand the outer level the parallelism and restore the setting after.
+    opencv_threads = cv2.getNumThreads()
+    executor = None
+    if workers > 1:
+        cv2.setNumThreads(1)
+        executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="meteor-block")
+        print(f"[{path.name}] analysing blocks with {workers} worker threads", file=sys.stderr)
+    # Keep a couple of blocks queued per worker so decoding never waits on a free slot.
+    max_inflight = 0 if executor is None else workers * 2
+
     frames_iter = iter(iter_decoded_frames(path, sw, sh, cfg, hw_method, hw_device))
     i = 0
-    while True:
-        td = time.perf_counter()
-        try:
-            frame = next(frames_iter)
-        except StopIteration:
-            break
-        profiler.add_time("decode_wait", time.perf_counter() - td)
-        profiler.inc("decoded_frames")
-        last_idx = i
-        buf.append((i, frame))
+    try:
+        while True:
+            td = time.perf_counter()
+            try:
+                frame = next(frames_iter)
+            except StopIteration:
+                break
+            profiler.add_time("decode_wait", time.perf_counter() - td)
+            profiler.inc("decoded_frames")
+            last_idx = i
+            buf.append((i, frame))
 
-        while i >= max(next_anchor + half, next_anchor + block_right):
-            process_anchor(next_anchor)
+            while i >= max(next_anchor + half, next_anchor + block_right):
+                submit_anchor(next_anchor)
+                next_anchor += model_stride
+                keep_from = min(next_anchor - half, submitted_through + 1)
+                while buf and buf[0][0] < keep_from:
+                    buf.popleft()
+                drain(max_inflight)
+            decoded_frame_count = i + 1
+            if decoded_frame_count % PROGRESS_LOG_INTERVAL_FRAMES == 0:
+                report_progress(decoded_frame_count)
+            i += 1
+            maybe_write_checkpoint()
+
+        max_target = last_idx - half
+        while next_anchor <= max_target and buf and next_anchor + half <= last_idx:
+            submit_anchor(next_anchor)
             next_anchor += model_stride
-            keep_from = min(next_anchor - half, processed_through + 1)
-            while buf and buf[0][0] < keep_from:
-                buf.popleft()
-        decoded_frame_count = i + 1
-        if decoded_frame_count % PROGRESS_LOG_INTERVAL_FRAMES == 0:
-            report_progress(decoded_frame_count)
-        i += 1
-        maybe_write_checkpoint()
-
-    max_target = last_idx - half
-    while next_anchor <= max_target and buf and next_anchor + half <= last_idx:
-        process_anchor(next_anchor)
-        next_anchor += model_stride
-        maybe_write_checkpoint()
+            drain(max_inflight)
+        drain()
+    finally:
+        if executor is not None:
+            executor.shutdown(cancel_futures=True)
+        cv2.setNumThreads(opencv_threads)
 
     if i and i != last_progress_reported:
         report_progress(i)
@@ -1533,6 +1731,7 @@ def scan_file(
         "temporal_sample_stride": sample_stride,
         "temporal_model_stride": model_stride,
         "fast_prefilter": use_prefilter,
+        "worker_threads": workers,
         "ignore_camera_bumps": ignore_camera_bumps,
         "diagnostic_level": diagnostic_level,
         "events": [

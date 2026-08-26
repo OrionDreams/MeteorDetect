@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Added parallel anchor-block analysis with `--workers` / the `worker_threads` config key.
+  Blocks are submitted and merged in anchor order, so results are byte-identical to the
+  sequential path; verified across the default config, an even sample count, both fallback
+  algorithms, the prefilter, camera-bump filtering, hardware decode and pause/resume. The gain
+  is about 1.1x normally and 1.3x on candidate-dense footage, peaking at 2-4 workers, so auto
+  selects at most 3 and more workers make it slower. Profiling established that the pipeline is
+  now decode-bound: with analysis removed entirely it reaches 202 fps against 166 fps in normal
+  scanning, and decoding in parallel chunks does not lift that ceiling. Further throughput work
+  should target decode cost rather than analysis. See docs/PERFORMANCE.md.
+
+  The performance report was reworked to suit this. Analysis stages are collected per worker
+  and summed, so they overlap the main thread's wall clock and previously produced percentages
+  adding up past 100%. Serial pipeline stages and analysis stages are now reported separately,
+  each against its own denominator, with the worker count and the analysis-to-wall overlap
+  factor. A `block_wait` stage tells main-thread time spent waiting on the pool apart from
+  decoding, and `worker_threads` is recorded in the profile JSON. `decode_wait` rising sharply
+  with workers enabled is expected rather than a regression: with analysis offloaded the main
+  thread only reads frames, so the figure converges on the true cost of decoding.
+
 - Replaced the temporal model's full sort network with a median selection network: Batcher's
   odd-even mergesort pruned by backward liveness to the middle position(s). For the default 13
   samples this is 39 comparators instead of 78, halving the work for identical order

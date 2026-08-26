@@ -35,10 +35,30 @@ Compare the exact same video.
 
 Detector progress is intentionally coarse. The Python detector reports every 100 decoded frames and once at completion so the desktop UI can update progress without per-frame logging overhead.
 
+### Reading the report
+
+The report has two sections, because they do not share a clock.
+
+**Pipeline** stages run on the main thread and are serial, so they are shown as a share of wall
+time. **Analysis** stages run inside block workers; with a pool they are summed across workers
+and overlap the pipeline, so they are shown as a share of analysis time, with an
+`analysis total` line giving the overlap factor against the wall clock. A factor above 1.0x
+means workers were genuinely running concurrently — it is not an error. Adding the two sections
+together is meaningless.
+
+`decode_wait` is also much larger with a worker pool than without, and that is expected rather
+than a regression. Sequentially the main thread pauses to analyse, which lets FFmpeg decode
+ahead and hides most decode latency; with analysis offloaded the main thread does nothing but
+read frames, so the figure converges on the true cost of decoding. It is the honest number, and
+on 4K H.264 it lands within a few percent of the standalone decode ceiling.
+
 ### Stage meanings
 
 `decode_wait`
 : Time spent obtaining frames from FFmpeg, including decode, scaling, pipe transfer, NumPy view/copy.
+
+`block_wait`
+: Main-thread time waiting for a block worker to finish, i.e. the pool falling behind the decoder. Near zero means analysis is keeping up and decode sets the pace.
 
 `prefilter`
 : Optional coarse temporal streak filtering.
@@ -153,7 +173,56 @@ cannot handle the codec, and still exits 0. MPEG-4 part 2 does exactly this on c
 and NVIDIA hardware. The detector therefore probes with `-hwaccel_output_format` before
 committing, so a reported `hardware_decoder` means acceleration actually happened.
 
-### Parallelism
+### Parallel block analysis
+
+Anchor blocks are independent, so `--workers N` analyses them on a small thread pool while the
+main thread decodes. Blocks are submitted and merged in anchor order, so candidates land in the
+same sequence as the sequential path and results are byte-identical — verified against the
+sequential path for the default config, an even sample count, both fallback algorithms, the
+prefilter, camera-bump filtering, hardware decode, and pause/resume.
+
+**The payoff is small, and the reason is worth understanding before tuning it.** Measured on an
+1800-frame 4K H.264 clip:
+
+| Workers | fps (normal) | fps (candidate-dense) |
+| --- | --- | --- |
+| 1 | 158 | 50 |
+| 2 | 174 | 59 |
+| 3 | 171 | 63 |
+| 4 | 169 | 65 |
+| 8 | 165 | 62 |
+
+About 1.1x normally and 1.3x on candidate-dense footage, peaking at 2-4 workers and going
+backwards above that. `worker_threads: 0` therefore auto-selects at most 3.
+
+Two things cap it. Block analysis streams large buffers and saturates memory bandwidth rather
+than cores; and on candidate-dense frames the per-component geometry loop is Python-level, so
+it holds the GIL and does not parallelise at all. An isolated benchmark of block analysis
+suggests ~2.5x, which does not survive contact with the full pipeline.
+
+### The real ceiling is decode
+
+With analysis removed entirely — just draining the decoder — this pipeline tops out at **202
+fps** (software) or **182 fps** (cuda) for 4K H.264 on a 22-core machine. Current scanning
+reaches 166 fps, i.e. **82-92% of that ceiling**, so at most ~1.2x remains available to any
+amount of analysis optimisation.
+
+Decoding in parallel chunks does not lift it either. Software decode already frame-threads
+across ~13 cores, so extra decoder processes oversubscribe, and CUDA has a single NVDEC engine:
+
+| Parallel decoders | software fps | cuda fps |
+| --- | --- | --- |
+| 1 | 206 | 173 |
+| 2 | 218 | 166 |
+| 4 | 188 | 140 |
+| 8 | 140 | 108 |
+
+So further throughput work should target *decode cost*, not analysis: a smaller `scan_width`,
+lower-resolution or faster-decoding source material, or GPU scaling (which is not bit-exact —
+see the hardware decoding section). Note that the original goal of ~100,000 frames in 10
+minutes is 167 fps, which the current detector meets on this hardware.
+
+### Parallelism (further options)
 
 Parallelism can help, but should follow single-process profiling.
 

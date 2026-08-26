@@ -115,6 +115,17 @@ def main() -> int:
         metavar="PATH",
         help="Device for --hw-decoder, e.g. /dev/dri/renderD129 for vaapi. Autodetected when omitted.",
     )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        metavar="N",
+        help=(
+            "Worker threads analysing anchor blocks in parallel. 0 (default) picks a small pool "
+            "automatically, 1 forces the sequential path. Results are identical either way. "
+            "The work is memory-bandwidth bound, so throughput peaks around 4-6 workers and "
+            "degrades above that; setting this to the core count is slower, not faster."
+        ),
+    )
     ap.add_argument("--fast-prefilter", action="store_true",
                     help="Enable experimental cheap temporal streak prefilter before robust analysis")
     ap.add_argument("--no-fast-prefilter", action="store_true",
@@ -166,6 +177,10 @@ def main() -> int:
             ap.error(str(exc))
     if args.hw_decoder_device:
         cfg["hardware_decoder_device"] = args.hw_decoder_device
+    if args.workers is not None:
+        if args.workers < 0:
+            ap.error("--workers must be 0 (auto) or a positive number of threads")
+        cfg["worker_threads"] = args.workers
     if str(cfg.get("decoder", "ffmpeg")).lower() == "ffmpeg" and not shutil.which("ffmpeg"):
         ap.error("ffmpeg must be installed and available on PATH when using --decoder ffmpeg")
     if args.fast_prefilter:
