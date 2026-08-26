@@ -29,7 +29,7 @@ cross-frame event grouping
 per-clip meteor JSON
         |
         v
-resolve_importer/import_meteors.py
+resolve_importer/legacy/import_meteors.py
         |
         v
 Pink TimelineItem markers
@@ -89,9 +89,10 @@ The detector runtime version is independent from the desktop app version and is 
 from `meteor_detector/__init__.py`. Detector JSON files record this value as
 `detector_version`.
 
-### `resolve_importer/import_meteors.py`
+### `resolve_importer/legacy/import_meteors.py`
 
-Resolve-side importer. It is intentionally separate from image analysis.
+Legacy external-Python Resolve-side importer. It is intentionally separate from image
+analysis and remains available as a development/reference implementation.
 
 ### `src/MeteorDetect.App`
 
@@ -224,6 +225,6 @@ Normal user path:
 external detector -> per-clip meteor JSON -> Resolve Workspace/Utility Lua script -> TimelineItem:AddMarker()
 ```
 
-`resolve_importer/Import Meteors.lua` is the preferred end-user importer. It is self-contained so the Resolve host does not depend on the detector's Python runtime. `resolve_importer/import_meteors.py` remains as a development/reference implementation.
+`resolve_importer/Import Meteors.lua` is the preferred end-user importer. It is self-contained so the Resolve host does not depend on the detector's Python runtime. `resolve_importer/legacy/import_meteors.py` remains as a development/reference implementation.
 
 The desktop UI may install or update `Import Meteors.lua` by probing known Resolve Utility script directories. If no directory is found, the user can choose one manually and the UI should remember that directory. A future Resolve utility may launch the desktop app with the selected original media path, but the app must remain useful without that integration.

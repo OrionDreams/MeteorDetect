@@ -4,7 +4,7 @@
 Designed for DaVinci Resolve Studio 21.0.4 on Linux, while using only longstanding
 scripting calls. Run externally with Resolve open:
 
-    python import_meteors.py /path/to/meteors.json
+    python resolve_importer/legacy/import_meteors.py /path/to/meteors.json
 
 It can also be installed as a Resolve Workspace script. In that mode, set
 METEOR_JSON=/path/to/meteors.json or put meteors.json in your home directory.

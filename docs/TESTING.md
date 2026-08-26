@@ -71,7 +71,7 @@ A duplicated exposure must not be rejected merely because consecutive encoded fr
 ## Syntax smoke test
 
 ```bash
-python -m py_compile meteor_detector/cli.py meteor_detector/detector.py resolve_importer/import_meteors.py
+python -m py_compile meteor_detector/cli.py meteor_detector/detector.py resolve_importer/legacy/import_meteors.py
 ```
 
 ## Desktop UI smoke test
