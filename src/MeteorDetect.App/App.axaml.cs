@@ -23,6 +23,7 @@ public partial class App : Application
                 DataContext = new MainWindowViewModel(
                     runtime,
                     new DetectionService(runtime),
+                    new UpdateCheckService(),
                     new AvaloniaUserInteractionService())
             };
         }

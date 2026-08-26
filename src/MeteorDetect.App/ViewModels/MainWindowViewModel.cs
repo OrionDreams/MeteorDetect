@@ -25,6 +25,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     private readonly DetectorRuntime _runtime;
     private readonly DetectionService _detectionService;
+    private readonly UpdateCheckService _updateCheckService;
     private readonly IUserInteractionService _userInteraction;
     private readonly DispatcherTimer _remainingTimeTimer;
     private readonly DispatcherTimer _pauseRequestTimer;
@@ -129,6 +130,12 @@ public partial class MainWindowViewModel : ObservableObject
     private string _appVersionText = $"App: {AppVersionInfo.ReleaseTag}";
 
     [ObservableProperty]
+    private bool _isUpdateAvailable;
+
+    [ObservableProperty]
+    private string _updateNotificationText = "";
+
+    [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshDirectoryCommand))]
     private string _loadedDirectoryPath = "";
 
@@ -138,10 +145,12 @@ public partial class MainWindowViewModel : ObservableObject
     public MainWindowViewModel(
         DetectorRuntime runtime,
         DetectionService detectionService,
+        UpdateCheckService updateCheckService,
         IUserInteractionService userInteraction)
     {
         _runtime = runtime;
         _detectionService = detectionService;
+        _updateCheckService = updateCheckService;
         _userInteraction = userInteraction;
         _runtimeStatus = BuildRuntimeStatus(null);
         _remainingTimeTimer = new DispatcherTimer
@@ -157,6 +166,7 @@ public partial class MainWindowViewModel : ObservableObject
         SelectedClips.CollectionChanged += OnSelectedClipsChanged;
 
         _ = InitializeAsync();
+        _ = CheckForUpdatesAsync();
     }
 
     public ObservableCollection<ClipItemViewModel> Clips { get; } = [];
@@ -508,6 +518,31 @@ public partial class MainWindowViewModel : ObservableObject
         catch (Exception ex)
         {
             RuntimeStatus = BuildRuntimeStatus($"unavailable ({ex.Message})");
+        }
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            var result = await _updateCheckService.CheckForUpdatesAsync(AppVersionInfo.ReleaseTag);
+            if (!result.IsUpdateAvailable || string.IsNullOrWhiteSpace(result.LatestVersion))
+            {
+                return;
+            }
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                IsUpdateAvailable = true;
+                UpdateNotificationText = string.IsNullOrWhiteSpace(result.ReleaseUrl)
+                    ? $"MeteorDetect {result.LatestVersion} is available. Current version: {AppVersionInfo.ReleaseTag}."
+                    : $"MeteorDetect {result.LatestVersion} is available. Current version: {AppVersionInfo.ReleaseTag}.\n{result.ReleaseUrl}";
+            });
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException or JsonException)
+        {
+            // Update checks are best-effort startup work. Offline machines, blocked GitHub,
+            // and slow networks must never affect the detector UI.
         }
     }
 
