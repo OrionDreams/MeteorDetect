@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.2 Beta with Detector runtime 0.8.0
+
+- Added a Hardware Acceleration selector to the Settings page. On startup, the app runs
+  `ffmpeg -hide_banner -hwaccels`, intersects the reported methods with the detector's
+  supported `--hw-decoder` choices, and keeps the detector's authoritative option order.
+  `Auto` is now the default hardware decoder selection.
+
+- Detection runs now pass the selected hardware decoder to the Python detector, and the main
+  progress panel shows an orange `Hardware Decoder` pill when the detector confirms that
+  hardware decoding is actually in use. When `Auto` is selected, the pill shows the resolved
+  backend such as `vaapi` or `cuda`.
+
 ## v0.3.1 Beta with Detector runtime 0.8.0
 
 - No functionality changes, this is a service release for checking github actions.
