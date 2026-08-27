@@ -24,6 +24,8 @@ public sealed class AppSettings
 
     public string DetectorDecoder { get; set; } = DetectorDecoders.Ffmpeg;
 
+    public string HardwareDecoder { get; set; } = HardwareDecoders.Auto;
+
     public bool FastPrefilter { get; set; }
 }
 

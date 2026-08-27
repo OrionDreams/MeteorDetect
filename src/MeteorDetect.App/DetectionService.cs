@@ -92,11 +92,36 @@ public sealed class DetectionService
             : output;
     }
 
+    public async Task<IReadOnlySet<string>> GetAvailableHardwareDecodersAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var result = await ProcessRunner.RunAsync(
+            "ffmpeg",
+            ["-hide_banner", "-hwaccels"],
+            _runtime.RepositoryRoot,
+            BuildProcessEnvironment(),
+            cancellationToken: cancellationToken);
+
+        if (result.ExitCode != 0)
+        {
+            return new HashSet<string>(StringComparer.Ordinal);
+        }
+
+        var available = result.StandardOutput
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .SkipWhile(line => !line.Equals("Hardware acceleration methods:", StringComparison.Ordinal))
+            .Skip(1)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return available;
+    }
+
     public async Task<DetectionBatchResult> DetectAsync(
         IReadOnlyList<string> clipPaths,
         string detectorAlgorithm,
         string cameraClass,
         string detectorDecoder,
+        string hardwareDecoder,
         int diagnosticLevel,
         bool ignoreCameraBumps,
         bool outputDiagnosticImages,
@@ -113,6 +138,7 @@ public sealed class DetectionService
         var algorithm = DetectorAlgorithms.Resolve(detectorAlgorithm);
         var camera = CameraClasses.Resolve(cameraClass);
         var decoder = DetectorDecoders.Resolve(detectorDecoder);
+        var hardware = HardwareDecoders.Resolve(hardwareDecoder);
         var diagnostics = DiagnosticLevels.Resolve(diagnosticLevel);
         var batchDirectory = writeCombinedJson ? CreateBatchDirectory() : null;
         var outputTimestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
@@ -158,6 +184,11 @@ public sealed class DetectionService
             args.Add(camera.Id);
             args.Add("--decoder");
             args.Add(decoder.Id);
+            if (!string.Equals(hardware.Id, HardwareDecoders.None, StringComparison.Ordinal))
+            {
+                args.Add("--hw-decoder");
+                args.Add(hardware.Id);
+            }
             args.Add("--diagnostic-level");
             args.Add(diagnostics.Id.ToString());
 

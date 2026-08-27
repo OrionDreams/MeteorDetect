@@ -17,6 +17,14 @@ public partial class MainWindowViewModel : ObservableObject
         @"^(?:\[(?<time>\d{2}:\d{2}:\d{2})\])?\[(?<file>[^\]]+)\]\s+frame\s+(?<processed>\d+)\/(?<total>\d+),\s+candidates=(?<candidates>\d+)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex HardwareDecoderEnabledPattern = new(
+        @"^\[hw\]\s+hardware decoding enabled:\s+(?<decoder>[a-z0-9_]+)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    private static readonly Regex HardwareDecoderFallbackPattern = new(
+        @"^\[hw\]\s+(?:hardware decoding requires|this ffmpeg reports no usable hardware decoders|ffmpeg was not built with|no hardware decoder)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
     private static readonly HashSet<string> SupportedVideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".mp4",
@@ -89,6 +97,9 @@ public partial class MainWindowViewModel : ObservableObject
     private DetectorDecoderOption _selectedDetectorDecoder = DetectorDecoders.All[0];
 
     [ObservableProperty]
+    private HardwareDecoderOption _selectedHardwareDecoder = HardwareDecoders.DefaultOptions[0];
+
+    [ObservableProperty]
     private bool _writeCombinedJson;
 
     [ObservableProperty]
@@ -105,6 +116,12 @@ public partial class MainWindowViewModel : ObservableObject
 
     [ObservableProperty]
     private string _processedFramesText = "Processed frames: 0 / 0";
+
+    [ObservableProperty]
+    private string _hardwareDecoderInUseText = "";
+
+    [ObservableProperty]
+    private bool _isHardwareDecoderPillVisible;
 
     [ObservableProperty]
     private string _candidateFramesText = "Candidate frames: 0";
@@ -187,6 +204,8 @@ public partial class MainWindowViewModel : ObservableObject
 
     public IReadOnlyList<DetectorDecoderOption> DetectorDecoderOptions => DetectorDecoders.All;
 
+    public ObservableCollection<HardwareDecoderOption> HardwareDecoderOptions { get; } = [];
+
     public bool HasLoadedDirectory => !string.IsNullOrWhiteSpace(LoadedDirectoryPath);
 
     [RelayCommand(CanExecute = nameof(CanOpenDirectory))]
@@ -261,6 +280,7 @@ public partial class MainWindowViewModel : ObservableObject
                 SelectedDetectorAlgorithm.Id,
                 SelectedCameraClass.Id,
                 SelectedDetectorDecoder.Id,
+                SelectedHardwareDecoder.Id,
                 SelectedDiagnosticLevel.Id,
                 IgnoreCameraBumps,
                 OutputDiagnosticImages,
@@ -527,6 +547,7 @@ public partial class MainWindowViewModel : ObservableObject
         SelectedCameraClass = CameraClasses.Resolve(_settings.CameraClass);
         SelectedDiagnosticLevel = DiagnosticLevels.Resolve(_settings.DiagnosticLevel);
         SelectedDetectorDecoder = DetectorDecoders.Resolve(_settings.DetectorDecoder);
+        await RefreshHardwareDecoderOptionsAsync();
         WriteCombinedJson = _settings.WriteCombinedJson;
         IgnoreCameraBumps = _settings.IgnoreCameraBumps;
         OutputDiagnosticImages = _settings.OutputDiagnosticImages;
@@ -546,6 +567,28 @@ public partial class MainWindowViewModel : ObservableObject
         {
             RuntimeStatus = BuildRuntimeStatus($"unavailable ({ex.Message})");
         }
+    }
+
+    private async Task RefreshHardwareDecoderOptionsAsync()
+    {
+        IReadOnlyList<HardwareDecoderOption> options;
+        try
+        {
+            var available = await _detectionService.GetAvailableHardwareDecodersAsync();
+            options = HardwareDecoders.FromAvailableMethods(available);
+        }
+        catch
+        {
+            options = HardwareDecoders.DefaultOptions;
+        }
+
+        HardwareDecoderOptions.Clear();
+        foreach (var option in options)
+        {
+            HardwareDecoderOptions.Add(option);
+        }
+
+        SelectedHardwareDecoder = HardwareDecoders.Resolve(_settings.HardwareDecoder, HardwareDecoderOptions);
     }
 
     private async Task CheckForUpdatesAsync()
@@ -676,6 +719,7 @@ public partial class MainWindowViewModel : ObservableObject
 
     private void AppendLog(string message)
     {
+        UpdateHardwareDecoderFromLog(message);
         UpdateProgressFromLog(message, DateTimeOffset.Now);
         LogText += $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
     }
@@ -749,6 +793,29 @@ public partial class MainWindowViewModel : ObservableObject
     {
         _settings.DetectorDecoder = value.Id;
         _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    partial void OnSelectedHardwareDecoderChanged(HardwareDecoderOption value)
+    {
+        _settings.HardwareDecoder = value.Id;
+        _ = SettingsStore.SaveAsync(_settings);
+    }
+
+    private void UpdateHardwareDecoderFromLog(string message)
+    {
+        var enabledMatch = HardwareDecoderEnabledPattern.Match(message);
+        if (enabledMatch.Success)
+        {
+            HardwareDecoderInUseText = $"Hardware Decoder: {enabledMatch.Groups["decoder"].Value}";
+            IsHardwareDecoderPillVisible = true;
+            return;
+        }
+
+        if (HardwareDecoderFallbackPattern.IsMatch(message))
+        {
+            HardwareDecoderInUseText = "";
+            IsHardwareDecoderPillVisible = false;
+        }
     }
 
     private void UpdateProgressFromLog(string message, DateTimeOffset observedAt)
@@ -857,6 +924,8 @@ public partial class MainWindowViewModel : ObservableObject
         ProgressPercentage = 0;
         ProgressPercentText = "0%";
         ProcessedFramesText = "Processed frames: 0 / 0";
+        HardwareDecoderInUseText = "";
+        IsHardwareDecoderPillVisible = false;
         CandidateFramesText = "Candidate frames: 0";
         FramesPerSecondText = "Speed: -- fps";
         RemainingTimeText = "Remaining: --";

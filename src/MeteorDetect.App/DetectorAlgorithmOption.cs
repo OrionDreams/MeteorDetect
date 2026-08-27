@@ -69,6 +69,77 @@ public static class DetectorDecoders
     }
 }
 
+public sealed record HardwareDecoderOption(string Id, string Name, string Description)
+{
+    public override string ToString() => Name;
+}
+
+public static class HardwareDecoders
+{
+    public const string None = "none";
+    public const string Auto = "auto";
+
+    private static readonly IReadOnlyDictionary<string, HardwareDecoderOption> OptionsById =
+        new Dictionary<string, HardwareDecoderOption>(StringComparer.Ordinal)
+        {
+            [None] = new(None, "None", "Default. Use FFmpeg software decoding."),
+            [Auto] = new(Auto, "Auto", "Try available hardware decoders in detector order and use the first one that works for the file."),
+            ["vaapi"] = new("vaapi", "VAAPI", "Linux hardware decoding through VAAPI."),
+            ["cuda"] = new("cuda", "CUDA / NVDEC", "NVIDIA hardware decoding through FFmpeg's CUDA hwaccel path."),
+            ["qsv"] = new("qsv", "Intel Quick Sync", "Intel hardware decoding through Quick Sync Video."),
+            ["videotoolbox"] = new("videotoolbox", "VideoToolbox", "macOS hardware decoding through VideoToolbox."),
+            ["d3d11va"] = new("d3d11va", "D3D11VA", "Windows hardware decoding through Direct3D 11 Video Acceleration."),
+            ["dxva2"] = new("dxva2", "DXVA2", "Windows hardware decoding through DirectX Video Acceleration 2."),
+        };
+
+    public static IReadOnlyList<string> DetectorOrder { get; } =
+    [
+        None,
+        Auto,
+        "vaapi",
+        "cuda",
+        "qsv",
+        "videotoolbox",
+        "d3d11va",
+        "dxva2",
+    ];
+
+    public static IReadOnlyList<HardwareDecoderOption> DefaultOptions { get; } =
+    [
+        OptionsById[None],
+        OptionsById[Auto],
+    ];
+
+    public static IReadOnlyList<HardwareDecoderOption> FromAvailableMethods(IReadOnlySet<string> availableMethods)
+    {
+        var options = new List<HardwareDecoderOption>
+        {
+            OptionsById[None],
+            OptionsById[Auto],
+        };
+
+        foreach (var id in DetectorOrder.Skip(2))
+        {
+            if (availableMethods.Contains(id) && OptionsById.TryGetValue(id, out var option))
+            {
+                options.Add(option);
+            }
+        }
+
+        return options;
+    }
+
+    public static HardwareDecoderOption Resolve(
+        string? id,
+        IEnumerable<HardwareDecoderOption>? options = null)
+    {
+        var candidates = options ?? DefaultOptions;
+        return candidates.FirstOrDefault(option => string.Equals(option.Id, id, StringComparison.Ordinal))
+            ?? candidates.FirstOrDefault(option => string.Equals(option.Id, Auto, StringComparison.Ordinal))
+            ?? OptionsById[Auto];
+    }
+}
+
 public sealed record CameraClassOption(string Id, string Name, string Description)
 {
     public override string ToString() => Name;
